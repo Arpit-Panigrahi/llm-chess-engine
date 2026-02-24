@@ -1,3 +1,7 @@
+/*
+ * llm_parser.h — UCI move extraction interface
+ * Author: Arpit Panigrahi (2026)
+ */
 #ifndef LLM_PARSER_H
 #define LLM_PARSER_H
 

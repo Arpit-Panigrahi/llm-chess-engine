@@ -1,3 +1,9 @@
+/*
+ * telemetry.c — CSV telemetry logging for LLM research
+ * Author: Arpit Panigrahi (2026)
+ * Part of the LLM integration layer added to VICE.
+ * Original VICE engine by Richard Allbert (Bluefever Software).
+ */
 #include "telemetry.h"
 #include <stdio.h>
 #include <time.h>

@@ -1,0 +1,53 @@
+THIRD-PARTY NOTICES
+====================
+
+This project is a research extension built on top of existing open-source
+software. The following third-party components are included:
+
+
+1. VICE Chess Engine (Video Instructional Chess Engine)
+------------------------------------------------------
+   Author:    Richard Allbert (Bluefever Software)
+   Website:   http://www.bluefever.net
+   Tutorial:  https://www.youtube.com/playlist?list=PLZ1QII7yudbc-Ky058TEaOstZHVbT-2hg
+   Year:      2013-2014 (Vice 1.0 and 1.1)
+   License:   Open-use (author's statement: "You are welcome to use the code
+              as you like to help with your projects!")
+
+   The following Source/ files are original VICE code (some with minor
+   modifications for LLM integration, noted inline):
+     attack.c, bitboards.c, board.c, data.c, defs.h, evaluate.c,
+     hashkeys.c, init.c, io.c, makemove.c, misc.c, movegen.c, perft.c,
+     polybook.c, polykeys.c, polykeys.h, pvtable.c, search.c, uci.c,
+     validate.c, vice.c, xboard.c
+
+   Files modified from the original VICE source:
+     - search.c   : Added LLM fallback integration, fixed operator
+                     precedence bug, removed dead-code guard
+     - vice.c     : Added curl_global_init/cleanup in main()
+     - uci.c      : Fixed INPUTBUFFER macro precedence
+     - defs.h     : Changed system header includes to angle brackets,
+                     renamed engine identification string
+
+
+2. cJSON
+------------------------------------------------------
+   Author:    Dave Gamble / cJSON contributors
+   Website:   https://github.com/DaveGamble/cJSON
+   License:   MIT License
+   Files:     Source/cJSON.c, Source/cJSON.h
+
+
+3. LLM Integration Code (new files by Arpit Panigrahi)
+------------------------------------------------------
+   The following files are entirely new additions for this research project:
+     Source/llm_search.c    - LLM move search entry point
+     Source/llm_parser.c    - UCI move extraction from LLM output
+     Source/llm_parser.h    - LLM parser header
+     Source/http_client.c   - Ollama HTTP client via libcurl
+     Source/http_client.h   - HTTP client header
+     Source/telemetry.c     - CSV telemetry logging
+     Source/telemetry.h     - Telemetry header
+     gui.py                 - Tkinter GUI for automated tournaments
+     analyze.py             - Data analysis & visualization
+   License:   MIT License (see LICENSE file)

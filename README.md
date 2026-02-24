@@ -1,8 +1,10 @@
-# LLM Chess Engine — VICE 11 + Llama-3 Hybrid
+# LLM Chess Engine — Built on VICE 1.1 + Llama-3
 
-A research project investigating **LLM hallucinations in chess move generation** by integrating [Llama-3 (8B)](https://ollama.com/library/llama3) into the [VICE](https://www.chessprogramming.org/Vice) chess engine via [Ollama](https://ollama.com/).
+A research project investigating **LLM hallucinations in chess move generation** by extending the [VICE chess engine](https://www.chessprogramming.org/Vice) (by **Bluefever Software / Richard Allbert**) with [Llama-3 (8B)](https://ollama.com/library/llama3) integration via [Ollama](https://ollama.com/).
 
-The engine uses Llama-3 as its primary move selector, falling back to classical alpha-beta search when the LLM produces an illegal move. All telemetry (FEN, temperature, latency, legality, raw LLM output) is logged for research analysis.
+> **VICE** (**V**ideo **I**nstructional **C**hess **E**ngine) is an open-source chess engine originally created by [Bluefever Software](http://www.bluefever.net) as part of an [87-video YouTube tutorial series](https://www.youtube.com/watch?v=bGAfaepBco4&list=PLZ1QII7yudbc-Ky058TEaOstZHVbT-2hg) teaching chess engine programming in C. All original VICE source code is used with permission per the author's open-use notice. This project adds LLM integration modules on top of the original engine.
+
+The modified engine uses Llama-3 as its primary move selector, falling back to VICE's classical alpha-beta search when the LLM produces an illegal move. All telemetry (FEN, temperature, latency, legality, raw LLM output) is logged for research analysis.
 
 ---
 
@@ -25,15 +27,16 @@ Adding the legal-move constraint (injecting the full list of valid UCI moves int
 ## Architecture
 
 ```
-┌──────────────┐     UCI Protocol     ┌────────────────────┐
-│  gui.py      │◄────────────────────►│  VICE Engine (C)   │
-│  (Tkinter)   │                      │                    │
-│  Tournament  │                      │  llm_search.c      │──► Builds legal move list
-│  Runner      │                      │  http_client.c     │──► HTTP POST to Ollama
-│              │                      │  llm_parser.c      │──► Extracts UCI move from LLM
-│              │                      │  telemetry.c       │──► Logs to CSV
-│              │                      │  search.c          │──► Classical α-β fallback
-└──────────────┘                      └────────┬───────────┘
+┌──────────────┐     UCI Protocol     ┌─────────────────────────────┐
+│  gui.py      │◄────────────────────►│  VICE Engine (C)            │
+│  (Tkinter)   │                      │  Original: Bluefever Soft.  │
+│  Tournament  │                      │                             │
+│  Runner      │                      │  + llm_search.c  (added)    │──► Legal moves
+│              │                      │  + http_client.c (added)    │──► Ollama API
+│              │                      │  + llm_parser.c  (added)    │──► Move parse
+│              │                      │  + telemetry.c   (added)    │──► CSV logging
+│              │                      │  search.c (original+mod)    │──► α-β fallback
+└──────────────┘                      └────────────┬────────────────┘
                                                │ HTTP (libcurl)
                                       ┌────────▼───────────┐
                                       │  Ollama (local)    │
@@ -48,21 +51,21 @@ Adding the legal-move constraint (injecting the full list of valid UCI moves int
 
 ```
 .
-├── Source/                  # C source code for the VICE chess engine
-│   ├── llm_search.c        # LLM move search entry point + legal move builder
-│   ├── http_client.c       # Ollama HTTP integration via libcurl + cJSON
-│   ├── llm_parser.c        # UCI move extraction from raw LLM response
-│   ├── telemetry.c         # CSV telemetry logging
-│   ├── search.c            # Classical alpha-beta search (fallback)
-│   ├── evaluate.c          # Position evaluation heuristics
-│   ├── movegen.c           # Legal move generation
-│   ├── board.c             # Board representation (10x12 mailbox)
-│   ├── uci.c               # UCI protocol handler
-│   ├── vice.c              # Engine entry point
-│   ├── cJSON.c/h           # JSON parser (MIT licensed, Dave Gamble)
-│   ├── defs.h              # Constants, types, macros
+├── Source/                  # C source — VICE engine + LLM additions
+│   ├── llm_search.c        # [ADDED] LLM search entry point + legal move builder
+│   ├── http_client.c       # [ADDED] Ollama HTTP integration via libcurl + cJSON
+│   ├── llm_parser.c        # [ADDED] UCI move extraction from raw LLM response
+│   ├── telemetry.c         # [ADDED] CSV telemetry logging
+│   ├── cJSON.c/h           # [ADDED] JSON parser (MIT, Dave Gamble)
+│   ├── search.c            # [VICE, modified] Alpha-beta search + LLM fallback
+│   ├── vice.c              # [VICE, modified] Engine entry point + curl init
+│   ├── uci.c               # [VICE, modified] UCI protocol handler
+│   ├── defs.h              # [VICE, modified] Constants, types, macros
+│   ├── evaluate.c          # [VICE, original] Position evaluation
+│   ├── movegen.c           # [VICE, original] Move generation
+│   ├── board.c             # [VICE, original] Board representation (10x12)
 │   ├── makefile             # Build configuration
-│   └── ...                 # Other engine modules (attack, bitboards, etc.)
+│   └── ...                 # [VICE, original] attack, bitboards, etc.
 ├── gui.py                  # Tkinter GUI — runs automated tournaments
 ├── analyze.py              # Data analysis + publication-ready charts
 ├── data/
@@ -183,11 +186,22 @@ Key parameters in the source code:
 
 ---
 
+## Acknowledgments
+
+This project would not exist without the foundational work of **Richard Allbert (Bluefever Software)**, who created the VICE chess engine and generously made it available as an educational resource through his [YouTube series](https://www.youtube.com/watch?v=bGAfaepBco4&list=PLZ1QII7yudbc-Ky058TEaOstZHVbT-2hg). The original VICE source code is used with permission per the author's open-use statement:
+
+> *"You are welcome to use the code as you like to help with your projects!"*  
+> — Richard Allbert, VICE ReadMe
+
+---
+
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+The **LLM integration code** (files marked `[ADDED]` above) is licensed under the [MIT License](LICENSE).
 
-The VICE chess engine is by Bluefever Software. [cJSON](https://github.com/DaveGamble/cJSON) is by Dave Gamble (MIT License).
+The **original VICE engine** source code is by [Bluefever Software / Richard Allbert](http://www.bluefever.net) and is used under their open-use permission. See [docs/ViceReadMe.html](docs/ViceReadMe.html) for the original documentation.
+
+[cJSON](https://github.com/DaveGamble/cJSON) is by Dave Gamble (MIT License).
 
 ---
 
@@ -202,5 +216,17 @@ If you use this work in academic research, please cite:
   year         = {2026},
   publisher    = {GitHub},
   url          = {https://github.com/Arpit-Panigrahi/llm-chess-engine}
+}
+```
+
+Please also credit the original VICE engine:
+
+```bibtex
+@misc{allbert2013vice,
+  author       = {Allbert, Richard},
+  title        = {VICE: Video Instructional Chess Engine},
+  year         = {2013},
+  publisher    = {Bluefever Software},
+  url          = {https://www.youtube.com/playlist?list=PLZ1QII7yudbc-Ky058TEaOstZHVbT-2hg}
 }
 ```

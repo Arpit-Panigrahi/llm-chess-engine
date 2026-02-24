@@ -24,7 +24,7 @@ PIECE_SYMBOLS = {
 class ChessGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Llama-3 VICE Hybrid Engine")
+        self.root.title("LLM Chess Engine (built on VICE by Bluefever Software)")
         
         # 1. Initialize Engine
         try:

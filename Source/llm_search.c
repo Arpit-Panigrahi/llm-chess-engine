@@ -1,3 +1,9 @@
+/*
+ * llm_search.c — LLM move search entry point
+ * Author: Arpit Panigrahi (2026)
+ * Part of the LLM integration layer added to VICE.
+ * Original VICE engine by Richard Allbert (Bluefever Software).
+ */
 #include "defs.h"
 #include "http_client.h"
 #include "llm_parser.h"

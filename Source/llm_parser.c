@@ -1,4 +1,10 @@
-// llm_parser.c
+/*
+ * llm_parser.c — UCI move extraction from LLM responses
+ * Author: Arpit Panigrahi (2026)
+ * Part of the LLM integration layer added to VICE.
+ * Original VICE engine by Richard Allbert (Bluefever Software).
+ */
+
 // Extracts the first syntactically valid UCI move (e.g. e2e4,
 // e7e8q) from an arbitrary natural-language LLM response.
 

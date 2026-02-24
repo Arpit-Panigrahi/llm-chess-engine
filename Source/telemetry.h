@@ -1,3 +1,7 @@
+/*
+ * telemetry.h — CSV telemetry logging interface
+ * Author: Arpit Panigrahi (2026)
+ */
 #ifndef TELEMETRY_H
 #define TELEMETRY_H
 

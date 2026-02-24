@@ -1,3 +1,9 @@
+/*
+ * http_client.c — Ollama HTTP client via libcurl
+ * Author: Arpit Panigrahi (2026)
+ * Part of the LLM integration layer added to VICE.
+ * Original VICE engine by Richard Allbert (Bluefever Software).
+ */
 #include "http_client.h"
 #include "cJSON.h"
 #include <stdio.h>

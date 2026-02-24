@@ -1,6 +1,12 @@
 #ifndef DEFS_H
 #define DEFS_H
 
+/*
+ * Original VICE (Video Instructional Chess Engine) by Richard Allbert
+ * (Bluefever Software, 2013). Modified for LLM integration research.
+ * See NOTICE file for full attribution.
+ */
+
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -23,7 +29,7 @@ exit(1);}
 
 typedef unsigned long long U64;
 
-#define NAME "Vice 1.1"
+#define NAME "Vice 1.1-LLM (based on VICE by Bluefever Software)"
 #define BRD_SQ_NUM 120
 
 #define MAXGAMEMOVES 2048

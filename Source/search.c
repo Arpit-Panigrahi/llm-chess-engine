@@ -1,4 +1,10 @@
-// search.c
+/*
+ * search.c — Alpha-beta search with quiescence
+ * Original author: Richard Allbert (Bluefever Software, 2013)
+ * Modified by: Arpit Panigrahi (2026) — added LLM fallback integration,
+ *   fixed operator precedence bug, removed dead-code ResearchMode guard.
+ */
+
 // Main search driver: alpha-beta with quiescence, null-move
 // pruning, repetition/50-move draws, transposition table usage
 // and move ordering based on captures, killers and history.

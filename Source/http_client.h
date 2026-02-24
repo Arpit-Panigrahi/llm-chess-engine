@@ -1,3 +1,7 @@
+/*
+ * http_client.h — Ollama HTTP client interface
+ * Author: Arpit Panigrahi (2026)
+ */
 #ifndef HTTP_CLIENT_H
 #define HTTP_CLIENT_H
 

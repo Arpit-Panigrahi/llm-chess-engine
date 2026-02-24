@@ -1,7 +1,12 @@
-// vice.c
-// Engine entry point: initializes tables and hash, processes
-// command-line options (e.g. NoBook), then dispatches to UCI,
-// XBoard or console loops based on initial stdin command.
+/*
+ * vice.c — Engine entry point
+ * Original author: Richard Allbert (Bluefever Software, 2013)
+ * Modified by: Arpit Panigrahi (2026) — added curl_global_init/cleanup.
+ */
+
+// Initializes tables and hash, processes command-line options
+// (e.g. NoBook), then dispatches to UCI, XBoard or console
+// loops based on initial stdin command.
 
 #include "stdio.h"
 #include "defs.h"
