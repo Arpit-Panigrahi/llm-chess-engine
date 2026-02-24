@@ -1,0 +1,44 @@
+# ─── Compiled Binaries ───────────────────────────────────
+*.exe
+*.out
+*.o
+*.obj
+Source/vice
+Vice11_Mac
+
+# ─── Build Artifacts ────────────────────────────────────
+*.bin
+*.dSYM/
+performance.bin
+
+# ─── OS Files ───────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ─── Python ─────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# ─── IDE / Editor ───────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── Archives ───────────────────────────────────────────
+*.zip
+*.tar.gz
+*.rar
+
+# ─── Temporary Files ───────────────────────────────────
+*.tmp
+*.log
