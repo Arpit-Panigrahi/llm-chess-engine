@@ -42,3 +42,7 @@ build/
 # ─── Temporary Files ───────────────────────────────────
 *.tmp
 *.log
+
+# ─── Flask / Web ────────────────────────────────────────
+instance/
+.webassets-cache

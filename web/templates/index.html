@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Chess Engine — Built on VICE</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <h1>♚ LLM Chess Engine</h1>
+        <p class="subtitle">Built on VICE by Bluefever Software &middot; Llama-3 Integration</p>
+        <nav>
+            <a href="/" class="active">Play</a>
+            <a href="/research">Research Data</a>
+        </nav>
+    </header>
+
+    <main>
+        <div class="game-container">
+            <!-- Chess Board -->
+            <div class="board-section">
+                <div class="board-header">
+                    <span id="engine-badge" class="badge badge-engine">Engine: waiting...</span>
+                    <span id="turn-indicator" class="badge badge-turn">White to move</span>
+                </div>
+
+                <div id="chess-board" class="chess-board"></div>
+
+                <div class="board-controls">
+                    <button id="btn-new-game" class="btn btn-primary" onclick="newGame()">♔ New Game</button>
+                    <button id="btn-undo" class="btn btn-secondary" onclick="undoMove()">↩ Undo</button>
+                    <button id="btn-flip" class="btn btn-secondary" onclick="flipBoard()">⇅ Flip Board</button>
+                </div>
+            </div>
+
+            <!-- Info Panel -->
+            <div class="info-panel">
+                <!-- Status -->
+                <div class="panel-section">
+                    <h3>Game Status</h3>
+                    <div id="game-status" class="status-box">
+                        Click <strong>New Game</strong> to start playing as White against the engine.
+                    </div>
+                </div>
+
+                <!-- Hallucination Alert -->
+                <div id="hallucination-alert" class="panel-section alert-box" style="display:none;">
+                    <h3>⚠️ LLM Hallucination Detected!</h3>
+                    <p id="hallucination-msg"></p>
+                </div>
+
+                <!-- Move History -->
+                <div class="panel-section">
+                    <h3>Move History</h3>
+                    <div id="move-history" class="move-history">
+                        <em>No moves yet</em>
+                    </div>
+                </div>
+
+                <!-- About -->
+                <div class="panel-section">
+                    <h3>About</h3>
+                    <p class="about-text">
+                        This is a web version of the LLM Chess Engine research project.
+                        Play as <strong>White</strong> — the engine plays <strong>Black</strong>.
+                        When the VICE engine with Llama-3 is available, it uses LLM-generated moves.
+                        Otherwise, a random move fallback is used.
+                    </p>
+                    <p class="about-text">
+                        <strong>Research Question:</strong> Can constraining an LLM with a legal-move list
+                        eliminate hallucinated chess moves?
+                    </p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>
+            LLM Chess Engine &copy; Arpit Panigrahi &middot;
+            VICE Engine by Bluefever Software / Richard Allbert &middot;
+            <a href="https://github.com/Arpit-Panigrahi/llm-chess-engine" target="_blank">GitHub</a>
+        </p>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/game.js') }}"></script>
+</body>
+</html>

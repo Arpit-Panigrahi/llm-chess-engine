@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research Data — LLM Chess Engine</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <h1>♚ LLM Chess Engine</h1>
+        <p class="subtitle">Research Data &amp; Analysis</p>
+        <nav>
+            <a href="/">Play</a>
+            <a href="/research" class="active">Research Data</a>
+        </nav>
+    </header>
+
+    <main>
+        <!-- Key Findings -->
+        <section class="research-section">
+            <h2>Key Findings</h2>
+            <p class="research-question">
+                <strong>Research Question:</strong> Can constraining an LLM with a legal-move list eliminate hallucinated chess moves?
+            </p>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value">{{ stats.total_calls }}</div>
+                    <div class="stat-label">Total LLM Calls</div>
+                </div>
+                <div class="stat-card stat-legal">
+                    <div class="stat-value">{{ stats.legal_moves }}</div>
+                    <div class="stat-label">Legal Moves</div>
+                </div>
+                <div class="stat-card stat-illegal">
+                    <div class="stat-value">{{ stats.illegal_moves }}</div>
+                    <div class="stat-label">Illegal Moves</div>
+                </div>
+                <div class="stat-card stat-rate">
+                    <div class="stat-value">{{ stats.success_rate }}%</div>
+                    <div class="stat-label">Overall Success Rate</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tournament Results -->
+        <section class="research-section">
+            <h2>Tournament Results</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Tournament</th>
+                        <th>Temperature</th>
+                        <th>Legal Constraint</th>
+                        <th>Legal Move Rate</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>T1</td>
+                        <td>0.1</td>
+                        <td>No</td>
+                        <td>49.5%</td>
+                    </tr>
+                    <tr>
+                        <td>T2</td>
+                        <td>0.8</td>
+                        <td>No</td>
+                        <td>43.0%</td>
+                    </tr>
+                    <tr class="highlight-row">
+                        <td>T3</td>
+                        <td>0.8</td>
+                        <td><strong>Yes</strong></td>
+                        <td><strong>97.4%</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="table-note">
+                Adding the legal-move constraint (injecting the full list of valid UCI moves into the prompt)
+                raised the legal move rate from ~43% to <strong>97.4%</strong>.
+            </p>
+        </section>
+
+        <!-- Hallucination Log -->
+        <section class="research-section">
+            <h2>Hallucination Log ({{ stats.total_hallucinations }} entries)</h2>
+            {% if hallucinations %}
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Game #</th>
+                            <th>Turn #</th>
+                            <th>FEN</th>
+                            <th>Error</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for h in hallucinations %}
+                        <tr>
+                            <td>{{ h.get('Timestamp', 'N/A') }}</td>
+                            <td>{{ h.get('Game_Number', 'N/A') }}</td>
+                            <td>{{ h.get('Turn_Number', 'N/A') }}</td>
+                            <td class="fen-cell" title="{{ h.get('FEN', '') }}">{{ h.get('FEN', 'N/A')[:40] }}…</td>
+                            <td class="error-cell">{{ h.get('Error_Message', 'N/A')[:60] }}…</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p><em>No hallucination data available.</em></p>
+            {% endif %}
+        </section>
+
+        <!-- Telemetry Sample -->
+        <section class="research-section">
+            <h2>Engine Telemetry (sample of {{ research_log|length }} entries)</h2>
+            {% if research_log %}
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Temp</th>
+                            <th>Latency (ms)</th>
+                            <th>Move</th>
+                            <th>Legal?</th>
+                            <th>Fallback?</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in research_log %}
+                        <tr class="{{ 'illegal-row' if r.is_legal == '0' else '' }}">
+                            <td>{{ r.timestamp }}</td>
+                            <td>{{ r.temperature }}</td>
+                            <td>{{ r.latency_ms }}</td>
+                            <td><code>{{ r.move }}</code></td>
+                            <td>{{ '✅' if r.is_legal == '1' else '❌' }}</td>
+                            <td>{{ '⚡' if r.fallback_used == '1' else '—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p><em>No telemetry data available.</em></p>
+            {% endif %}
+        </section>
+
+        <!-- Architecture Diagram -->
+        <section class="research-section">
+            <h2>Architecture</h2>
+            <pre class="architecture-diagram">
+┌──────────────┐     HTTP/REST      ┌─────────────────────────────┐
+│  Web Browser │◄──────────────────►│  Flask Backend (Python)     │
+│  (HTML/CSS/  │                    │  web/app.py                 │
+│   JavaScript)│                    │                             │
+│              │                    │  python-chess game logic    │
+└──────────────┘                    └────────────┬────────────────┘
+                                                 │ UCI Protocol (stdin/stdout)
+                                    ┌────────────▼────────────────┐
+                                    │  VICE Engine (C)            │
+                                    │  Original: Bluefever Soft.  │
+                                    │                             │
+                                    │  + llm_search.c  (added)   │──► Legal moves
+                                    │  + http_client.c (added)   │──► Ollama API
+                                    │  + llm_parser.c  (added)   │──► Move parse
+                                    │  + telemetry.c   (added)   │──► CSV logging
+                                    └────────────┬────────────────┘
+                                                 │ HTTP (libcurl)
+                                    ┌────────────▼────────────────┐
+                                    │  Ollama (local)             │
+                                    │  llama3:latest              │
+                                    │  8B params, Q4_0            │
+                                    └─────────────────────────────┘
+            </pre>
+        </section>
+    </main>
+
+    <footer>
+        <p>
+            LLM Chess Engine &copy; Arpit Panigrahi &middot;
+            VICE Engine by Bluefever Software / Richard Allbert &middot;
+            <a href="https://github.com/Arpit-Panigrahi/llm-chess-engine" target="_blank">GitHub</a>
+        </p>
+    </footer>
+</body>
+</html>

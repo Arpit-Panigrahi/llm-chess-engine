@@ -26,6 +26,35 @@ Adding the legal-move constraint (injecting the full list of valid UCI moves int
 
 ## Architecture
 
+### Web Interface (New)
+
+```
+┌──────────────┐     HTTP/REST      ┌─────────────────────────────┐
+│  Web Browser │◄──────────────────►│  Flask Backend (Python)     │
+│  (HTML/CSS/  │                    │  web/app.py                 │
+│   JavaScript)│                    │                             │
+│              │                    │  python-chess game logic    │
+└──────────────┘                    └────────────┬────────────────┘
+                                                 │ UCI Protocol (stdin/stdout)
+                                    ┌────────────▼────────────────┐
+                                    │  VICE Engine (C)            │
+                                    │  Original: Bluefever Soft.  │
+                                    │                             │
+                                    │  + llm_search.c  (added)   │──► Legal moves
+                                    │  + http_client.c (added)   │──► Ollama API
+                                    │  + llm_parser.c  (added)   │──► Move parse
+                                    │  + telemetry.c   (added)   │──► CSV logging
+                                    └────────────┬────────────────┘
+                                                 │ HTTP (libcurl)
+                                    ┌────────────▼────────────────┐
+                                    │  Ollama (local)             │
+                                    │  llama3:latest              │
+                                    │  8B params, Q4_0            │
+                                    └─────────────────────────────┘
+```
+
+### Desktop GUI (Original)
+
 ```
 ┌──────────────┐     UCI Protocol     ┌─────────────────────────────┐
 │  gui.py      │◄────────────────────►│  VICE Engine (C)            │
@@ -51,6 +80,14 @@ Adding the legal-move constraint (injecting the full list of valid UCI moves int
 
 ```
 .
+├── web/                    # NEW — Flask web application
+│   ├── app.py              # Flask backend with REST API
+│   ├── templates/
+│   │   ├── index.html      # Chess game page
+│   │   └── research.html   # Research data visualization
+│   └── static/
+│       ├── css/style.css    # UI styles (dark theme)
+│       └── js/game.js       # Client-side chess board & game logic
 ├── Source/                  # C source — VICE engine + LLM additions
 │   ├── llm_search.c        # [ADDED] LLM search entry point + legal move builder
 │   ├── http_client.c       # [ADDED] Ollama HTTP integration via libcurl + cJSON
@@ -85,22 +122,42 @@ Adding the legal-move constraint (injecting the full list of valid UCI moves int
 
 | Dependency | Version | Purpose |
 |:-----------|:--------|:--------|
-| GCC        | 11+     | Compile the C engine |
-| libcurl    | 7.x+    | HTTP calls to Ollama |
-| Ollama     | 0.1+    | Local LLM server |
-| Python     | 3.8+    | GUI + analysis scripts |
-| Tkinter    | —       | Chess GUI (usually bundled with Python) |
+| Python     | 3.8+    | Web app + GUI + analysis scripts |
+| Flask      | 3.1+    | Web application framework |
+| GCC        | 11+     | Compile the C engine (optional for web) |
+| libcurl    | 7.x+    | HTTP calls to Ollama (engine only) |
+| Ollama     | 0.1+    | Local LLM server (engine only) |
+| Tkinter    | —       | Desktop GUI (optional, bundled with Python) |
 
 ---
 
 ## Quick Start
 
-### 1. Clone & Build
+### 1. Clone & Install Dependencies
 
 ```bash
 git clone git@github.com:Arpit-Panigrahi/llm-chess-engine.git
 cd llm-chess-engine
 
+# Install Python dependencies
+pip install -r requirements.txt
+```
+
+### 2. Run the Web Application
+
+```bash
+python web/app.py
+```
+
+Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser to:
+- **Play chess** against the engine (or random fallback)
+- **View research data** and tournament results
+
+The web app works out of the box with a random-move engine. For LLM-powered moves, build the VICE engine and start Ollama (see below).
+
+### 3. (Optional) Build the VICE Engine + Ollama
+
+```bash
 # Install system dependencies (Fedora)
 sudo dnf install -y gcc libcurl-devel python3-tkinter
 
@@ -108,30 +165,26 @@ sudo dnf install -y gcc libcurl-devel python3-tkinter
 cd Source
 make
 cd ..
-```
 
-### 2. Start Ollama
-
-```bash
 # Install Ollama (if not already installed)
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Pull the model
+# Pull the model and start the server
 ollama pull llama3
-
-# Start the server (runs on localhost:11434)
 ollama serve
 ```
 
-### 3. Run a Tournament
+Once the VICE engine is compiled and Ollama is running, the web app will automatically use LLM-generated moves instead of random fallback.
+
+### 4. (Optional) Run the Desktop GUI
 
 ```bash
 python3 gui.py
 ```
 
-The GUI plays automated games: **White = random moves**, **Black = Llama-3 via VICE engine**. Telemetry is logged to `llm_research_log.csv`.
+The desktop GUI plays automated games: **White = random moves**, **Black = Llama-3 via VICE engine**. Telemetry is logged to `llm_research_log.csv`.
 
-### 4. Analyze Results
+### 5. Analyze Results
 
 ```bash
 python3 analyze.py
