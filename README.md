@@ -110,6 +110,9 @@ Adding the legal-move constraint (injecting the full list of valid UCI moves int
 │   └── llm_hallucinations.csv    # GUI-captured errors (298 rows)
 ├── docs/
 │   └── ViceReadMe.html     # Original VICE engine documentation
+├── api/                    # NEW — Vercel serverless entry point
+│   └── index.py            # Wraps Flask app for Vercel deployment
+├── vercel.json             # Vercel build & routing configuration
 ├── .gitignore
 ├── requirements.txt
 ├── LICENSE
@@ -155,7 +158,28 @@ Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser to:
 
 The web app works out of the box with a random-move engine. For LLM-powered moves, build the VICE engine and start Ollama (see below).
 
-### 3. (Optional) Build the VICE Engine + Ollama
+### 3. Deploy to Vercel
+
+This project includes a `vercel.json` configuration and a serverless entry point
+(`api/index.py`) so you can deploy the Flask web app to [Vercel](https://vercel.com)
+with minimal setup.
+
+```bash
+# Install the Vercel CLI (once)
+npm i -g vercel
+
+# Deploy from the project root
+vercel
+```
+
+Or connect the GitHub repository directly from the
+[Vercel dashboard](https://vercel.com/new) — it will auto-detect the configuration.
+
+> **Note:** The Vercel deployment serves the web interface with a random-move fallback
+> engine. The VICE + Ollama integration requires a local server and is not available
+> in the serverless environment.
+
+### 4. (Optional) Build the VICE Engine + Ollama
 
 ```bash
 # Install system dependencies (Fedora)
@@ -176,7 +200,7 @@ ollama serve
 
 Once the VICE engine is compiled and Ollama is running, the web app will automatically use LLM-generated moves instead of random fallback.
 
-### 4. (Optional) Run the Desktop GUI
+### 5. (Optional) Run the Desktop GUI
 
 ```bash
 python3 gui.py
@@ -184,7 +208,7 @@ python3 gui.py
 
 The desktop GUI plays automated games: **White = random moves**, **Black = Llama-3 via VICE engine**. Telemetry is logged to `llm_research_log.csv`.
 
-### 5. Analyze Results
+### 6. Analyze Results
 
 ```bash
 python3 analyze.py
