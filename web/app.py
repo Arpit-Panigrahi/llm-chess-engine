@@ -29,6 +29,7 @@ ENGINE_PATH = os.path.join(PROJECT_ROOT, "Source", "vice")
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 HALLUCINATION_CSV = os.path.join(DATA_DIR, "llm_hallucinations.csv")
 RESEARCH_LOG_CSV = os.path.join(DATA_DIR, "llm_research_log.csv")
+LLM_ENGINE_ENABLED = os.environ.get("LLM_ENGINE_ENABLED", "").lower() in {"1", "true", "yes", "on"}
 
 # In-memory game store (keyed by game_id)
 games = {}
@@ -69,8 +70,8 @@ def try_engine_move(board):
     Falls back to a random legal move if the engine is unavailable.
     Returns (move, engine_name, hallucination_detected).
     """
-    # Try the VICE engine first
-    if os.path.exists(ENGINE_PATH):
+    # Try the VICE engine first (only when explicitly enabled)
+    if LLM_ENGINE_ENABLED and os.path.exists(ENGINE_PATH):
         try:
             engine = chess.engine.SimpleEngine.popen_uci(ENGINE_PATH)
             try:
@@ -87,7 +88,10 @@ def try_engine_move(board):
     # Fallback: random legal move
     legal_moves = list(board.legal_moves)
     if legal_moves:
-        return random.choice(legal_moves), "random", False
+        engine_name = "random"
+        if not LLM_ENGINE_ENABLED:
+            engine_name = "random (LLM disabled)"
+        return random.choice(legal_moves), engine_name, False
     return None, "none", False
 
 
@@ -355,6 +359,7 @@ if __name__ == "__main__":
     print("=" * 50)
     print(f"  Engine path: {ENGINE_PATH}")
     print(f"  Engine available: {os.path.exists(ENGINE_PATH)}")
+    print(f"  LLM engine enabled: {LLM_ENGINE_ENABLED}")
     print(f"  Data dir: {DATA_DIR}")
     print(f"  Starting on http://127.0.0.1:5000")
     print("=" * 50)
