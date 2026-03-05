@@ -19,6 +19,8 @@ import chess
 import chess.engine
 
 app = Flask(__name__)
+# In production, set the SECRET_KEY environment variable for persistent sessions.
+# The fallback random key is sufficient for local development but resets on restart.
 app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24).hex())
 
 # --- Configuration ---
@@ -324,6 +326,8 @@ def research_stats():
                 sessions["T1"]["legal"] += 1
         elif temp_val == 0.8:
             # Simple heuristic — later entries are T3
+            # Heuristic: the first ~200 rows at Temp 0.8 are from T2 (no constraint),
+            # subsequent rows are T3 (with legal-move constraint).
             if sessions["T2"]["total"] < 200:
                 sessions["T2"]["total"] += 1
                 if r["is_legal"] == "1":

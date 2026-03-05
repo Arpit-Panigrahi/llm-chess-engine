@@ -48,10 +48,11 @@ function renderBoard() {
             const col = gameState.flipped ? 7 - displayCol : displayCol;
             const row = gameState.flipped ? displayRow : 7 - displayRow;
             const sq = squareName(col, row);
-            const isLight = (col + row) % 2 === 0;
+            // In chess, a1 (col=0, row=0) is a dark square
+            const isDark = (col + row) % 2 === 0;
 
             const squareEl = document.createElement('div');
-            squareEl.className = `square ${isLight ? 'dark' : 'light'}`;
+            squareEl.className = `square ${isDark ? 'dark' : 'light'}`;
             squareEl.dataset.square = sq;
 
             // Highlight selected square
@@ -123,7 +124,7 @@ function onSquareClick(sq) {
         );
 
         if (validMoves.length > 0) {
-            // Use the first valid move (handles promotions — defaults to queen)
+            // Auto-promote to queen (matches original Tkinter GUI behavior)
             const move = validMoves[0];
             gameState.selectedSquare = null;
             makeMove(move);
