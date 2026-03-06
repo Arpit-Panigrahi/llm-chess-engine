@@ -68,6 +68,13 @@
                         Llama-3 moves. Otherwise, a random move fallback is used.
                     </p>
                     <p class="about-text">
+                        <strong>Vercel demo:</strong> The hosted Vercel site runs this Flask app as a serverless
+                        function. Serverless instances cannot run the compiled VICE engine or a local Ollama
+                        server, so engine moves are random, and game/telemetry state resets when the instance
+                        spins down. To see LLM-powered moves, run locally with
+                        <code>LLM_ENGINE_ENABLED=1</code> and a built VICE engine.
+                    </p>
+                    <p class="about-text">
                         <strong>Research Question:</strong> Can constraining an LLM with a legal-move list
                         eliminate hallucinated chess moves?
                     </p>
