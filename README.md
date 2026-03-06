@@ -156,7 +156,8 @@ Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser to:
 - **Play chess** against the engine (or random fallback)
 - **View research data** and tournament results
 
-The web app works out of the box with a random-move engine. For LLM-powered moves, build the VICE engine and start Ollama (see below).
+The web app works out of the box with a random-move engine. To enable LLM-powered moves,
+set `LLM_ENGINE_ENABLED=1`, build the VICE engine, and start Ollama (see below).
 
 ### 3. Deploy to Vercel
 
@@ -196,6 +197,9 @@ curl -fsSL https://ollama.com/install.sh | sh
 # Pull the model and start the server
 ollama pull llama3
 ollama serve
+
+# Enable the LLM engine for the web app
+export LLM_ENGINE_ENABLED=1
 ```
 
 Once the VICE engine is compiled and Ollama is running, the web app will automatically use LLM-generated moves instead of random fallback.
@@ -249,6 +253,7 @@ Key parameters in the source code:
 | `CURLOPT_TIMEOUT` | `http_client.c` | 30s | HTTP request timeout |
 | `Limit(time=)` | `gui.py` | 15.0s | UCI time limit per move |
 | `model` | `http_client.c` | `llama3` | Ollama model name |
+| `LLM_ENGINE_ENABLED` | `web/app.py` | unset | Enable LLM moves in the web app when set to `1` |
 
 ---
 
