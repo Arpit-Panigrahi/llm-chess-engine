@@ -176,9 +176,12 @@ vercel
 Or connect the GitHub repository directly from the
 [Vercel dashboard](https://vercel.com/new) — it will auto-detect the configuration.
 
-> **Note:** The Vercel deployment serves the web interface with a random-move fallback
-> engine. The VICE + Ollama integration requires a local server and is not available
-> in the serverless environment.
+> **Note:** The Vercel deployment runs the Flask app as a serverless function. It serves
+> the web interface with a random-move fallback because serverless instances cannot run
+> the compiled VICE engine or a local Ollama server. Game state lives in memory per
+> instance (so it can reset), and research telemetry is read from the bundled CSV files
+> rather than written live. For the full LLM experience, run locally with
+> `LLM_ENGINE_ENABLED=1` and a built VICE engine.
 
 ### 4. (Optional) Build the VICE Engine + Ollama
 
