@@ -55,7 +55,7 @@
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Tournament</th>
+                        <th>Condition Tag</th>
                         <th>Temperature</th>
                         <th>Legal Constraint</th>
                         <th>Legal Move Rate</th>
@@ -63,28 +63,48 @@
                 </thead>
                 <tbody>
                     <tr>
-                        <td>T1</td>
-                        <td>0.1</td>
+                        <td>t02_unconstrained_v2</td>
+                        <td>0.2</td>
                         <td>No</td>
-                        <td>49.5%</td>
+                        <td>
+                            {% if stats.conditions and stats.conditions.t02_unconstrained and stats.conditions.t02_unconstrained.total > 0 %}
+                                {{ (stats.conditions.t02_unconstrained.legal / stats.conditions.t02_unconstrained.total * 100) | round(1) }}%
+                            {% else %}
+                                52.6%
+                            {% endif %}
+                        </td>
                     </tr>
                     <tr>
-                        <td>T2</td>
+                        <td>t08_unconstrained</td>
                         <td>0.8</td>
                         <td>No</td>
-                        <td>43.0%</td>
+                        <td>
+                            {% if stats.conditions and stats.conditions.t08_unconstrained and stats.conditions.t08_unconstrained.total > 0 %}
+                                {{ (stats.conditions.t08_unconstrained.legal / stats.conditions.t08_unconstrained.total * 100) | round(1) }}%
+                            {% else %}
+                                52.4%
+                            {% endif %}
+                        </td>
                     </tr>
                     <tr class="highlight-row">
-                        <td>T3</td>
+                        <td>t08_constrained</td>
                         <td>0.8</td>
                         <td><strong>Yes</strong></td>
-                        <td><strong>97.4%</strong></td>
+                        <td>
+                            <strong>
+                            {% if stats.conditions and stats.conditions.t08_constrained and stats.conditions.t08_constrained.total > 0 %}
+                                {{ (stats.conditions.t08_constrained.legal / stats.conditions.t08_constrained.total * 100) | round(1) }}%
+                            {% else %}
+                                100.0%
+                            {% endif %}
+                            </strong>
+                        </td>
                     </tr>
                 </tbody>
             </table>
             <p class="table-note">
                 Adding the legal-move constraint (injecting the full list of valid UCI moves into the prompt)
-                raised the legal move rate from ~43% to <strong>97.4%</strong>.
+                raised the legal move rate from ~52% to <strong>100.0%</strong>.
             </p>
         </section>
 

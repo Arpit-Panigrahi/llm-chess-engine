@@ -10,6 +10,7 @@ import random
 import uuid
 from datetime import datetime
 
+import json
 from flask import Flask, render_template, jsonify, request
 
 # Add parent directory to path so we can access project data
@@ -26,9 +27,6 @@ app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24).hex())
 # --- Configuration ---
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE_PATH = os.path.join(PROJECT_ROOT, "Source", "vice")
-DATA_DIR = os.path.join(PROJECT_ROOT, "data")
-HALLUCINATION_CSV = os.path.join(DATA_DIR, "reference", "llm_hallucinations.csv")
-RESEARCH_LOG_CSV = os.path.join(DATA_DIR, "reference", "llm_research_log.csv")
 LLM_ENGINE_ENABLED = os.environ.get("LLM_ENGINE_ENABLED", "").lower() in {"1", "true", "yes", "on"}
 
 # In-memory game store (keyed by game_id)
@@ -96,34 +94,59 @@ def try_engine_move(board):
 
 
 def load_research_data():
-    """Load research data from CSV files for the research page."""
+    """Load research data dynamically from runs/ directory."""
     research_log = []
     hallucinations = []
 
-    # Load research log
-    if os.path.exists(RESEARCH_LOG_CSV):
-        with open(RESEARCH_LOG_CSV, "r") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if len(row) >= 7:
-                    research_log.append({
-                        "timestamp": row[0],
-                        "fen": row[1],
-                        "temperature": row[2],
-                        "latency_ms": row[3],
-                        "move": row[4],
-                        "is_legal": row[5],
-                        "fallback_used": row[6],
-                    })
+    runs_dir = os.path.join(PROJECT_ROOT, "runs")
+    if not os.path.isdir(runs_dir):
+        return research_log, hallucinations
 
-    # Load hallucination log
-    if os.path.exists(HALLUCINATION_CSV):
-        with open(HALLUCINATION_CSV, "r") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                hallucinations.append(row)
+    # Find all run directories
+    run_entries = []
+    for entry in os.listdir(runs_dir):
+        run_path = os.path.join(runs_dir, entry)
+        if os.path.isdir(run_path):
+            raw_path = os.path.join(run_path, "raw_outputs.jsonl")
+            if os.path.isfile(raw_path):
+                run_entries.append((entry, raw_path))
 
-    return research_log, hallucinations
+    # Sort runs chronologically (latest first)
+    run_entries.sort(reverse=True)
+
+    # Load records from raw_outputs.jsonl of all runs
+    for run_id, raw_path in run_entries:
+        try:
+            with open(raw_path, "r") as f:
+                for line in f:
+                    try:
+                        record = json.loads(line.strip())
+                        # Map to research log format
+                        research_log.append({
+                            "timestamp": record.get("timestamp", ""),
+                            "fen": record.get("fen", ""),
+                            "temperature": str(record.get("temperature", "")),
+                            "latency_ms": str(record.get("latency_ms", "")),
+                            "move": record.get("extracted_move", ""),
+                            "is_legal": str(record.get("is_legal", "")),
+                            "fallback_used": str(record.get("fallback_used", "")),
+                        })
+                        # If illegal, map to hallucination log format
+                        if record.get("is_legal") == 0:
+                            hallucinations.append({
+                                "Timestamp": record.get("timestamp", ""),
+                                "Game_Number": str(record.get("game_id", "")),
+                                "Turn_Number": str(record.get("turn_number", "")),
+                                "FEN": record.get("fen", ""),
+                                "Error_Message": f"Illegal move: '{record.get('extracted_move')}' (raw: '{record.get('raw_response')}')",
+                            })
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+        except Exception:
+            continue
+
+    # Limit to latest 500 entries to prevent page bloat
+    return research_log[:500], hallucinations[:500]
 
 
 # ── Routes ────────────────────────────────────────────────────
@@ -315,31 +338,46 @@ def research_stats():
     total = len(research_log)
     legal = sum(1 for r in research_log if r["is_legal"] == "1")
 
-    # Session breakdown
-    sessions = {"T1": {"total": 0, "legal": 0}, "T2": {"total": 0, "legal": 0}, "T3": {"total": 0, "legal": 0}}
-    for r in research_log:
-        temp = r.get("temperature", "")
-        try:
-            temp_val = float(temp)
-        except (ValueError, TypeError):
-            continue
+    # Condition breakdown
+    conditions = {
+        "t02_unconstrained": {"total": 0, "legal": 0},
+        "t08_unconstrained": {"total": 0, "legal": 0},
+        "t08_constrained": {"total": 0, "legal": 0}
+    }
 
-        if temp_val == 0.1:
-            sessions["T1"]["total"] += 1
-            if r["is_legal"] == "1":
-                sessions["T1"]["legal"] += 1
-        elif temp_val == 0.8:
-            # Simple heuristic — later entries are T3
-            # Heuristic: the first ~200 rows at Temp 0.8 are from T2 (no constraint),
-            # subsequent rows are T3 (with legal-move constraint).
-            if sessions["T2"]["total"] < 200:
-                sessions["T2"]["total"] += 1
-                if r["is_legal"] == "1":
-                    sessions["T2"]["legal"] += 1
-            else:
-                sessions["T3"]["total"] += 1
-                if r["is_legal"] == "1":
-                    sessions["T3"]["legal"] += 1
+    # Re-read raw data to classify by constrained_decoding flag
+    runs_dir = os.path.join(PROJECT_ROOT, "runs")
+    if os.path.isdir(runs_dir):
+        for entry in os.listdir(runs_dir):
+            run_path = os.path.join(runs_dir, entry)
+            if os.path.isdir(run_path):
+                raw_path = os.path.join(run_path, "raw_outputs.jsonl")
+                if os.path.isfile(raw_path):
+                    try:
+                        with open(raw_path, "r") as f:
+                            for line in f:
+                                try:
+                                    record = json.loads(line.strip())
+                                    temp = record.get("temperature", 0.0)
+                                    constrained = record.get("constrained_decoding", False)
+                                    is_legal = record.get("is_legal", 0)
+
+                                    if temp == 0.2 and not constrained:
+                                        key = "t02_unconstrained"
+                                    elif temp == 0.8 and not constrained:
+                                        key = "t08_unconstrained"
+                                    elif temp == 0.8 and constrained:
+                                        key = "t08_constrained"
+                                    else:
+                                        continue
+
+                                    conditions[key]["total"] += 1
+                                    if is_legal == 1:
+                                        conditions[key]["legal"] += 1
+                                except Exception:
+                                    continue
+                    except Exception:
+                        continue
 
     return jsonify({
         "total_calls": total,
@@ -347,7 +385,7 @@ def research_stats():
         "illegal_moves": total - legal,
         "success_rate": round(legal / total * 100, 1) if total > 0 else 0,
         "total_hallucinations": len(hallucinations),
-        "sessions": sessions,
+        "conditions": conditions,
     })
 
 
@@ -360,7 +398,6 @@ if __name__ == "__main__":
     print(f"  Engine path: {ENGINE_PATH}")
     print(f"  Engine available: {os.path.exists(ENGINE_PATH)}")
     print(f"  LLM engine enabled: {LLM_ENGINE_ENABLED}")
-    print(f"  Data dir: {DATA_DIR}")
     print(f"  Starting on http://127.0.0.1:5000")
     print("=" * 50)
     app.run(debug=os.environ.get("FLASK_DEBUG", "false").lower() == "true",

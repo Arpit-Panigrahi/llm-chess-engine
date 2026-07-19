@@ -14,14 +14,6 @@ The modified engine uses Llama-3 as its primary move selector, falling back to V
 
 ### Key Findings
 
-#### 1. Historical Reference Results (Original GUI Tournaments)
-| Tournament | Temperature | Legal Constraint | Legal Move Rate |
-|:-----------|:-----------:|:----------------:|:---------------:|
-| T1         | 0.1         | No               | 49.5%           |
-| T2         | 0.8         | No               | 43.0%           |
-| T3         | 0.8         | Yes              | **97.4%**       |
-
-#### 2. Standardized Experiment Matrix Results (New Hardened Platform)
 Using the standardized CLI matrix runner (`scripts/run_game.py`) with the robust UCI parser and early termination:
 
 | Condition Tag | Temperature | Legal Constraint | Games | LLM Calls | Legal Move Rate | Unique Moves |
@@ -271,12 +263,6 @@ This creates:
 - `reports/experiment_matrix/plots/latency_comparison.png`: Double bar chart comparing mean vs. median reaction times.
 - `reports/experiment_matrix/plots/move_diversity_comparison.png`: Unique moves proposed per condition.
 
-To run the legacy author data analysis:
-```bash
-python3 analyze.py
-```
-This reads the sanitized baseline reference data and generates `reports/llm_analysis_charts.png`.
-
 ---
 
 ## Robust UCI Parser & SAN Resolution
@@ -296,25 +282,70 @@ See [docs/results_schema.md](docs/results_schema.md) for full descriptions of al
 
 ---
 
-## Configuration
+## Tinkering & Custom Experiments
 
-For the CLI experiment runner (`scripts/run_game.py`), parameters can be configured directly from the command line:
+You can easily run custom experiments with different temperatures, constraint settings, seeds, and game lengths to find the optimal configuration or observe specific LLM behaviors.
 
-- `--temperature`: LLM sampling temperature value ∈ `[0.0, 2.0]`.
-- `--constrained-decoding` / `--no-constrained-decoding`: Toggle whether prompt contains list of legal moves.
-- `--seed`: Deterministic seed parameter for Ollama.
-- `--ollama-url`: IP address/domain endpoint of Ollama HTTP engine.
-- `--num-games`: Total mock games played.
+### 1. Tinkering with a Single Game / Run
+Use `scripts/run_game.py` to run custom configurations directly:
 
-Key parameters in the VICE compiled codebase, GUI, and Web application:
+* **Greedy / Deterministic Play (`T=0.0` + Constrained)**:
+  Best for testing the model's absolute baseline chess preference under strict constraints.
+  ```bash
+  python3 scripts/run_game.py --temperature 0.0 --constrained-decoding --num-games 1 --tag greedy_constrained
+  ```
 
-| Parameter | File | Default | Description |
-|:----------|:-----|:--------|:------------|
-| `temperature` | `llm_search.c` | 0.8 | LLM sampling temperature |
-| `CURLOPT_TIMEOUT` | `http_client.c` | 30s | HTTP request timeout |
-| `Limit(time=)` | `gui.py` | 15.0s | UCI time limit per move |
-| `model` | `http_client.c` | `llama3` | Ollama model name |
-| `LLM_ENGINE_ENABLED` | `web/app.py` | unset | Enable LLM moves in the web app when set to `1` |
+* **Creative Play (`T=1.2` + Constrained)**:
+  Encourages the model to play highly diverse and unusual moves while ensuring they remain 100% legal.
+  ```bash
+  python3 scripts/run_game.py --temperature 1.2 --constrained-decoding --num-games 1 --tag creative_constrained
+  ```
+
+* **Extreme Hallucination Test (`T=1.8` + Unconstrained)**:
+  Observe how the model behaves under extreme randomness without constraints. Early termination is recommended to abort the game immediately on the first illegal move.
+  ```bash
+  python3 scripts/run_game.py --temperature 1.8 --no-constrained-decoding --num-games 1 --early-termination --tag extreme_hallucination
+  ```
+
+### 2. Tinkering with the Experiment Matrix
+Use `scripts/run_experiment_matrix.sh` to run the full 3-condition matrix with custom parameters:
+
+* **Fast Custom Matrix (5 games per condition)**:
+  ```bash
+  bash scripts/run_experiment_matrix.sh --model llama3.1 --num-games 5 --seed 999 --early-termination
+  ```
+
+* **Matrix with Custom Network Endpoint & Turn Cap**:
+  Pass any extra arguments directly to the underlying `run_game.py` script:
+  ```bash
+  bash scripts/run_experiment_matrix.sh --model llama3.1 --num-games 10 --early-termination --max-turns 15 --ollama-url http://192.168.1.50:11434
+  ```
+
+### 3. Temperature Cheat Sheet
+Use this guide to select the right temperature for your experiments:
+
+| Temperature | Randomness | Expected Behavior (Unconstrained) | Expected Behavior (Constrained) |
+|:---:|:---|:---|:---|
+| **`0.0`** | None (Greedy) | Deterministic, repeats identical moves, ignores board state. | Deterministic, plays the same opening/moves every game. |
+| **`0.2 - 0.5`** | Low | High repetition, low move diversity, ~52% legal rate. | Low move diversity, highly standard openings. |
+| **`0.7 - 0.9`** | Balanced | Moderate diversity, frequent hallucinations, ~52% legal rate. | Balanced play, good move diversity, 100% legal. |
+| **`1.0 - 1.5`** | High | Heavy hallucinations, rapid game aborts. | High move diversity, unusual/creative moves, 100% legal. |
+| **`> 1.5`** | Extreme | Mostly gibberish/invalid formatting. | Extreme move diversity, highly chaotic play, 100% legal. |
+
+### 4. CLI Parameter Reference
+
+| Flag | Type | Default | Description |
+|:---|:---:|:---:|:---|
+| `--temperature` | `float` | `0.8` | LLM sampling temperature ∈ `[0.0, 2.0]`. |
+| `--constrained-decoding` | `bool` | `True` | Inject the list of legal moves into the prompt. |
+| `--no-constrained-decoding`| `bool` | `False` | Disable legal move prompt injection. |
+| `--seed` | `int` | `42` | Deterministic seed for Ollama and random moves. |
+| `--num-games` | `int` | `10` | Number of games to play in the run. |
+| `--max-turns` | `int` | `200` | Maximum ply (half-moves) per game. |
+| `--early-termination` | `bool` | `False` | Abort game immediately on the first illegal move. |
+| `--ollama-url` | `str` | `http://localhost:11434` | Endpoint URL of the Ollama server. |
+| `--model` | `str` | `llama3` | Ollama model name to use. |
+| `--tag` | `str` | `None` | Custom tag to identify the run in reports. |
 
 ---
 
