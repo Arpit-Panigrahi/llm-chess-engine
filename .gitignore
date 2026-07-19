@@ -46,3 +46,13 @@ build/
 # ─── Flask / Web ────────────────────────────────────────
 instance/
 .webassets-cache
+
+# ─── Runtime Outputs (never committed) ─────────────────
+runs/
+logs/
+reports/
+.env
+
+# ─── Generated Artifacts (reproduce via scripts) ───────
+llm_research_log.csv
+llm_analysis_charts.png

@@ -24,12 +24,12 @@ void LogLLMAction(const char *fen, float temperature, long latency_ms,
                   const char *raw_response, const char *uci_move, 
                   int is_legal, int fallback_used) {
     
-    // 1. Ensure the data/ directory exists (no-op if already present)
-    mkdir("data", 0755);
+    // 1. Ensure the runs/ directory exists (no-op if already present)
+    mkdir("runs", 0755);
 
     // 2. Open in Append mode ("a"). 
     // This adds to the end of the file, or creates it if it doesn't exist.
-    FILE *log_file = fopen("data/llm_research_log.csv", "a");
+    FILE *log_file = fopen("runs/llm_research_log.csv", "a");
     if (log_file == NULL) {
         // If we can't open the file (e.g., a permissions error in Fedora), just return.
         // We NEVER want a logging failure to crash the actual chess engine.

@@ -27,8 +27,8 @@ app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24).hex())
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE_PATH = os.path.join(PROJECT_ROOT, "Source", "vice")
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
-HALLUCINATION_CSV = os.path.join(DATA_DIR, "llm_hallucinations.csv")
-RESEARCH_LOG_CSV = os.path.join(DATA_DIR, "llm_research_log.csv")
+HALLUCINATION_CSV = os.path.join(DATA_DIR, "reference", "llm_hallucinations.csv")
+RESEARCH_LOG_CSV = os.path.join(DATA_DIR, "reference", "llm_research_log.csv")
 LLM_ENGINE_ENABLED = os.environ.get("LLM_ENGINE_ENABLED", "").lower() in {"1", "true", "yes", "on"}
 
 # In-memory game store (keyed by game_id)

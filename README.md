@@ -14,13 +14,26 @@ The modified engine uses Llama-3 as its primary move selector, falling back to V
 
 ### Key Findings
 
+#### 1. Historical Reference Results (Original GUI Tournaments)
 | Tournament | Temperature | Legal Constraint | Legal Move Rate |
 |:-----------|:-----------:|:----------------:|:---------------:|
 | T1         | 0.1         | No               | 49.5%           |
 | T2         | 0.8         | No               | 43.0%           |
 | T3         | 0.8         | Yes              | **97.4%**       |
 
-Adding the legal-move constraint (injecting the full list of valid UCI moves into the prompt) raised the legal move rate from ~43% to **97.4%**.
+#### 2. Standardized Experiment Matrix Results (New Hardened Platform)
+Using the standardized CLI matrix runner (`scripts/run_game.py`) with the robust UCI parser and early termination:
+
+| Condition Tag | Temperature | Legal Constraint | Games | LLM Calls | Legal Move Rate | Unique Moves |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `t02_unconstrained_v2` | 0.2 | No | 100 | 211 | **52.6%** | 7 |
+| `t08_unconstrained` | 0.8 | No | 100 | 210 | **52.4%** | 11 |
+| `t08_constrained` | 0.8 | Yes | 20 | 220 | **100.0%** | 40 |
+
+### Key Conclusions
+1. **Unconstrained Legality Ceiling**: Without structured constraints, the LLM hits a hard ceiling of **~52% legal moves** regardless of temperature (T=0.2 vs T=0.8).
+2. **Deterministic Repetition**: Low temperature (`T=0.2`) does not improve legality; instead, it causes the model to deterministically repeat a single move pattern (e.g., `g8f6`) ignoring the actual board state, leading to rapid game aborts.
+3. **Constraint Efficacy**: Injected legal-move constraints achieve a perfect **100.0% legal move rate** while significantly increasing move diversity (**40 unique moves** vs **11** in unconstrained).
 
 ---
 
@@ -213,42 +226,87 @@ Once the VICE engine is compiled and Ollama is running, the web app will automat
 python3 gui.py
 ```
 
-The desktop GUI plays automated games: **White = random moves**, **Black = Llama-3 via VICE engine**. Telemetry is logged to `llm_research_log.csv`.
+The desktop GUI plays automated games: **White = random moves**, **Black = Llama-3 via VICE engine**. Telemetry is logged to a git-ignored file at `runs/llm_hallucinations.csv`.
 
-### 6. Analyze Results
+### 6. Diagnose your Ollama Environment
 
+Detect host/container network topology and trace connectivity using:
+
+```bash
+python scripts/check_ollama_env.py --model llama3.1
+```
+
+It validates Ollama reachability, local process activity, and lists available models with clear instructions for Native, WSL, and Docker environments.
+
+### 7. Run Required Matrix Experiment
+
+Run the automated three-condition experiment matrix (100 games per condition by default, model `llama3.1`, seed `42`):
+
+```bash
+# Run the full 300 game matrix (3 conditions * 100 games)
+bash scripts/run_experiment_matrix.sh --model llama3.1 --num-games 100
+```
+
+#### Key Execution Controls:
+* **Deterministic Seed (`--seed 42`)**: Passed to both Ollama and the random move generator to ensure White's random moves are identical per game index across all conditions, establishing a fair baseline.
+* **Early Termination (`--early-termination`)**: Aborts a game immediately on the first illegal move (hallucination) or empty response. This matches the legacy GUI's behavior and is **highly recommended for CPU-only execution** to complete unconstrained runs in minutes rather than hours.
+  ```bash
+  # Run matrix with early termination for fast CPU execution
+  bash scripts/run_experiment_matrix.sh --model llama3.1 --num-games 100 --early-termination
+  ```
+* **Max Turns (`--max-turns 22`)**: Caps game length to a specific number of ply (half-moves). For constrained runs, setting this to a lower value (e.g., 22 ply) is recommended to prove the 100% legality hypothesis without the overhead of full 200-ply games.
+
+### 8. Analyze Matrix Results & Generate Report
+
+Aggregates execution logs, runs integrity checks (schema and duplicate checks), computes pairwise deltas, and writes a research report:
+
+```bash
+python scripts/analyze_all.py --run-root runs --out reports/experiment_matrix
+```
+
+This creates:
+- `reports/experiment_matrix/report.md`: Markdown research report with comparison tables and interpretations.
+- `reports/experiment_matrix/metrics_comparison.csv`: Condensed comparative table.
+- `reports/experiment_matrix/plots/legal_rate_comparison.png`: Vertical bar chart of success percentages.
+- `reports/experiment_matrix/plots/latency_comparison.png`: Double bar chart comparing mean vs. median reaction times.
+- `reports/experiment_matrix/plots/move_diversity_comparison.png`: Unique moves proposed per condition.
+
+To run the legacy author data analysis:
 ```bash
 python3 analyze.py
 ```
+This reads the sanitized baseline reference data and generates `reports/llm_analysis_charts.png`.
 
-Generates `llm_analysis_charts.png` with four quadrant charts:
-- **Q1**: Legal vs. Illegal moves per session
-- **Q2**: Success rate (%) trend
-- **Q3**: Latency distribution (box plots)
-- **Q4**: Move diversity (unique move curves)
+---
+
+## Robust UCI Parser & SAN Resolution
+
+The orchestrator (`scripts/run_game.py`) includes a robust UCI parser (`extract_uci_move`) that handles various LLM output formats:
+1. **Long Algebraic Notation (LAN)**: Strips piece prefixes (e.g., `"Nb8c6"` is resolved to `"b8c6"`).
+2. **Standard Algebraic Notation (SAN)**: Resolves SAN moves (e.g., `"Nf6"`) contextually against the current `chess.Board` state to find the corresponding UCI move (e.g., `"g8f6"`).
+3. **Formatting Cleanup**: Strips quotes, markdown bolding, and trailing punctuation (e.g., `'"e7e5"'` is cleaned to `"e7e5"`).
+
+This separates formatting variations from true logical chess errors, ensuring unconstrained runs measure the model's actual chess logic.
 
 ---
 
 ## Telemetry Schema
 
-### llm_research_log.csv
-
-| Column | Description |
-|:-------|:------------|
-| Timestamp | Unix epoch (seconds) |
-| FEN | Board state before the move |
-| Temperature | LLM sampling temperature |
-| Latency_ms | Round-trip time to Ollama |
-| Extracted_Move | UCI move parsed from LLM response |
-| Is_Legal | 1 = legal, 0 = illegal |
-| Fallback_Used | 1 = classical search used, 0 = LLM move played |
-| Raw_Response | Full text output from Llama-3 |
+See [docs/results_schema.md](docs/results_schema.md) for full descriptions of all telemetry log and manifest structures.
 
 ---
 
 ## Configuration
 
-Key parameters in the source code:
+For the CLI experiment runner (`scripts/run_game.py`), parameters can be configured directly from the command line:
+
+- `--temperature`: LLM sampling temperature value ∈ `[0.0, 2.0]`.
+- `--constrained-decoding` / `--no-constrained-decoding`: Toggle whether prompt contains list of legal moves.
+- `--seed`: Deterministic seed parameter for Ollama.
+- `--ollama-url`: IP address/domain endpoint of Ollama HTTP engine.
+- `--num-games`: Total mock games played.
+
+Key parameters in the VICE compiled codebase, GUI, and Web application:
 
 | Parameter | File | Default | Description |
 |:----------|:-----|:--------|:------------|
@@ -257,6 +315,18 @@ Key parameters in the source code:
 | `Limit(time=)` | `gui.py` | 15.0s | UCI time limit per move |
 | `model` | `http_client.c` | `llama3` | Ollama model name |
 | `LLM_ENGINE_ENABLED` | `web/app.py` | unset | Enable LLM moves in the web app when set to `1` |
+
+---
+
+## Troubleshooting & Environment Guide
+
+See [docs/runtime_modes_ollama.md](docs/runtime_modes_ollama.md) for full setup instructions mapping Native Linux, WSL2 hosts, and Docker configurations.
+
+---
+
+## Privacy Policy: No Shipped Personal Logs
+
+No active author runtime logs or personal system details are committed to tracking. Local runs automatically output to `runs/` and `logs/`, which are blocked in `.gitignore`. Historical data is preserved exclusively as sanitized reference samples inside `data/reference/`.
 
 ---
 

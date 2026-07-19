@@ -32,10 +32,10 @@ from datetime import datetime
 #   Col 7: Raw_Output (raw LLM response)
 columns = ["Timestamp", "FEN", "Temp", "Tokens/Time", "Move",
            "Valid", "Invalid", "Raw_Output"]
-df = pd.read_csv("data/llm_research_log.csv", names=columns)
+df = pd.read_csv("data/reference/llm_research_log.csv", names=columns)
 
 # --- B. Hallucination log (from the Python GUI) ---
-df_hall = pd.read_csv("data/llm_hallucinations.csv")  # has header row
+df_hall = pd.read_csv("data/reference/llm_hallucinations.csv")  # has header row
 
 # ============================================================
 # 2. CLEAN & SANITIZE
@@ -324,6 +324,8 @@ fig.text(0.5, 0.005,
          ha='center', fontsize=10, style='italic',
          bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
 
-plt.savefig("llm_analysis_charts.png", dpi=300, bbox_inches='tight')  # saved in project root
-print(f"\n✓ Quadrant charts saved to: llm_analysis_charts.png")
+import os as _os
+_os.makedirs("reports", exist_ok=True)
+plt.savefig("reports/llm_analysis_charts.png", dpi=300, bbox_inches='tight')
+print(f"\n✓ Quadrant charts saved to: reports/llm_analysis_charts.png")
 # plt.show()  # Uncomment for interactive viewing in a GUI environment

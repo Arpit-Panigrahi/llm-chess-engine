@@ -39,7 +39,8 @@ class ChessGUI:
         # --- RESEARCH TRACKING SETUP ---
         self.games_played = 0
         self.max_games = 100
-        self.csv_filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "llm_hallucinations.csv")
+        self.csv_filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "runs", "llm_hallucinations.csv")
+        os.makedirs(os.path.dirname(self.csv_filename), exist_ok=True)
         
         # Create CSV and write headers if it is a new file
         if not os.path.exists(self.csv_filename):
