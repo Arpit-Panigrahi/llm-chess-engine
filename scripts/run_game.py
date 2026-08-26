@@ -88,18 +88,29 @@ def check_ollama(config):
         return False
 
 
-def compress_legal_moves(legal_moves_uci: list) -> str:
+def compress_legal_moves(board_or_moves) -> str:
     """
     Dynamic Move Compression (DMC):
     Groups legal destination squares by origin square to reduce prompt tokens by 40-50%.
+    Accepts either a chess.Board object or a list of UCI string moves.
     Example: ['e7e5', 'e7e6', 'g8f6', 'g8h6'] -> "e7:[e5,e6]|g8:[f6,h6]"
+    Execution time is optimized to execute in <1 ms.
     """
-    if not legal_moves_uci:
+    if isinstance(board_or_moves, chess.Board):
+        moves = [m.uci() for m in board_or_moves.legal_moves]
+    elif isinstance(board_or_moves, (list, tuple, set)):
+        moves = [m.uci() if hasattr(m, "uci") else str(m) for m in board_or_moves]
+    else:
         return ""
+
+    if not moves:
+        return ""
+
     groups = {}
-    for m in sorted(legal_moves_uci):
+    for m in sorted(moves):
         src, dst = m[:2], m[2:]
         groups.setdefault(src, []).append(dst)
+
     return "|".join(f"{src}:[{','.join(dsts)}]" for src, dsts in sorted(groups.items()))
 
 
@@ -134,11 +145,11 @@ STATIC_KV_PREFIX = (
 )
 
 
-def build_kv_aligned_prompt(fen: str, legal_moves_list: list, is_constrained: bool = False, use_dmc: bool = False) -> str:
+def build_kv_aligned_prompt(fen: str, legal_moves_list: list, is_constrained: bool = False, use_dmc: bool = True) -> str:
     """
     Constructs a KV-Cache aligned prompt:
-    Static prefix is 100% constant across every turn and game,
-    Dynamic suffix contains the changing board FEN and optional legal moves list.
+    Static prefix is 100% constant across every turn and game (optimizing backend attention caching),
+    Dynamic suffix contains the changing board FEN and DMC-grouped legal moves string.
     """
     if is_constrained:
         if use_dmc:
@@ -154,7 +165,10 @@ def build_kv_aligned_prompt(fen: str, legal_moves_list: list, is_constrained: bo
 
 
 def query_ollama(config, fen, legal_moves_list, is_constrained=None, use_dmc=None, temperature=None):
-    """Send a position to Ollama with KV-Cache alignment and optional DMC."""
+    """
+    Send a position to Ollama with KV-Cache alignment and optional DMC.
+    Returns: (raw_response, elapsed_ms, prompt_tokens, generation_tokens)
+    """
     if is_constrained is None:
         is_constrained = config.constrained_decoding
     if use_dmc is None:
@@ -184,14 +198,16 @@ def query_ollama(config, fen, legal_moves_list, is_constrained=None, use_dmc=Non
 
         data = resp.json()
         raw_response = data.get("response", "").strip()
-        return raw_response, elapsed_ms
+        prompt_tokens = data.get("prompt_eval_count", 0)
+        generation_tokens = data.get("eval_count", 0)
+        return raw_response, elapsed_ms, prompt_tokens, generation_tokens
     except requests.Timeout:
         elapsed_ms = int((time.time() - start) * 1000)
-        return "", elapsed_ms
+        return "", elapsed_ms, 0, 0
     except Exception as e:
         elapsed_ms = int((time.time() - start) * 1000)
         print(f"  ⚠ Ollama error: {e}")
-        return "", elapsed_ms
+        return "", elapsed_ms, 0, 0
 
 
 def extract_uci_move(raw_response, board=None):
@@ -215,7 +231,6 @@ def extract_uci_move(raw_response, board=None):
             return candidate
 
     # 4. Try to find a UCI pattern with optional piece prefix or hyphen/capture symbol
-    # e.g., Nb8c6 -> b8c6, e2-e4 -> e2e4, b8xc6 -> b8c6, Pe2-e4 -> e2e4
     match = re.search(r'\b(?:[KQRBNPkqrbnp])?([a-h][1-8])[-xX]?([a-h][1-8])([qrbnQRBN]?)\b', text)
     if match:
         from_sq, to_sq, promo = match.groups()
@@ -293,11 +308,17 @@ def compute_move_cpl(board_before: chess.Board, played_move: chess.Move, engine=
 
 
 def play_game(config, game_num, run_dir, uci_engine=None, stockfish_engine=None):
-    """Play a single game with optional Speculative Fast/Slow path and Stockfish ACPL evaluation."""
+    """
+    Play a single game (White=random, Black=LLM).
+    Default: Single-Stage DMC with Prefix KV-Cache Alignment.
+    Ablation: Legacy Two-Stage Speculative Retry Loop (--mode ablation-speculative).
+    """
     board = chess.Board()
     rng = random.Random(config.seed + game_num)
     records = []
     turn_num = 0
+
+    mode_label = "single-stage-dmc" if config.mode == "single-stage" else ("ablation-speculative" if config.mode == "ablation-speculative" else "unconstrained")
 
     while not board.is_game_over() and turn_num < config.max_turns:
         turn_num += 1
@@ -316,6 +337,8 @@ def play_game(config, game_num, run_dir, uci_engine=None, stockfish_engine=None)
             speculative_fallback_used = 0
             fast_path_latency_ms = 0
             slow_path_latency_ms = 0
+            prompt_tokens = 0
+            generation_tokens = 0
 
             if config.engine_mode == "uci" and uci_engine is not None:
                 start_t = time.time()
@@ -328,12 +351,14 @@ def play_game(config, game_num, run_dir, uci_engine=None, stockfish_engine=None)
                     latency_ms = int((time.time() - start_t) * 1000)
                     uci_str = ""
                     raw_response = f"error: {e}"
-            elif config.speculative:
-                # ── Speculative Two-Stage Decision Loop ───────────────────
+            elif config.mode == "ablation-speculative" or config.speculative:
+                # ── Ablation Benchmark: Two-Stage Speculative Retry Loop ────
                 # Stage 1: Fast-Path draft (unconstrained, T=0.2)
-                raw_fast, lat_fast = query_ollama(config, fen, legal_moves, is_constrained=False, temperature=0.2)
+                raw_fast, lat_fast, p_tok1, g_tok1 = query_ollama(config, fen, legal_moves, is_constrained=False, temperature=0.2)
                 uci_fast = extract_uci_move(raw_fast, board)
                 fast_path_latency_ms = lat_fast
+                prompt_tokens = p_tok1
+                generation_tokens = g_tok1
 
                 try:
                     fast_move_obj = chess.Move.from_uci(uci_fast) if uci_fast else None
@@ -346,21 +371,31 @@ def play_game(config, game_num, run_dir, uci_engine=None, stockfish_engine=None)
                     else:
                         # FAST-PATH MISS -> Trigger Slow-Path Fallback (DMC constrained, T=0.8)
                         speculative_fallback_used = 1
-                        raw_slow, lat_slow = query_ollama(config, fen, legal_moves, is_constrained=True, use_dmc=config.use_dmc, temperature=0.8)
+                        raw_slow, lat_slow, p_tok2, g_tok2 = query_ollama(config, fen, legal_moves, is_constrained=True, use_dmc=config.use_dmc, temperature=0.8)
                         slow_path_latency_ms = lat_slow
+                        prompt_tokens += p_tok2
+                        generation_tokens += g_tok2
                         uci_str = extract_uci_move(raw_slow, board)
                         raw_response = f"Fast-Path: {raw_fast} | Slow-Path: {raw_slow}"
                         latency_ms = lat_fast + lat_slow
                 except ValueError:
                     speculative_fallback_used = 1
-                    raw_slow, lat_slow = query_ollama(config, fen, legal_moves, is_constrained=True, use_dmc=config.use_dmc, temperature=0.8)
+                    raw_slow, lat_slow, p_tok2, g_tok2 = query_ollama(config, fen, legal_moves, is_constrained=True, use_dmc=config.use_dmc, temperature=0.8)
                     slow_path_latency_ms = lat_slow
+                    prompt_tokens += p_tok2
+                    generation_tokens += g_tok2
                     uci_str = extract_uci_move(raw_slow, board)
                     raw_response = f"Fast-Path: {raw_fast} | Slow-Path: {raw_slow}"
                     latency_ms = lat_fast + lat_slow
             else:
-                # Standard Direct Mode (Constrained or Unconstrained)
-                raw_response, latency_ms = query_ollama(config, fen, legal_moves, is_constrained=config.constrained_decoding, use_dmc=config.use_dmc)
+                # ── Primary Execution Path: Single-Stage DMC (T=0.8, Default) ──
+                is_constrained = (config.mode != "unconstrained") and config.constrained_decoding
+                raw_response, latency_ms, prompt_tokens, generation_tokens = query_ollama(
+                    config, fen, legal_moves,
+                    is_constrained=is_constrained,
+                    use_dmc=config.use_dmc,
+                    temperature=config.temperature
+                )
                 uci_str = extract_uci_move(raw_response, board)
 
             is_legal = 0
@@ -418,21 +453,25 @@ def play_game(config, game_num, run_dir, uci_engine=None, stockfish_engine=None)
                 "game_id": game_num,
                 "turn_number": turn_num,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "mode": mode_label,
+                "turn_latency_ms": latency_ms,
+                "latency_ms": latency_ms,
+                "move_legality": bool(is_legal),
+                "is_legal": is_legal,
+                "prompt_tokens": prompt_tokens,
+                "generation_tokens": generation_tokens,
+                "cpl_stockfish": cpl if config.eval_acpl else None,
+                "centipawn_loss": cpl,
                 "fen": fen,
                 "temperature": config.temperature,
-                "constrained_decoding": config.constrained_decoding,
-                "speculative": config.speculative,
                 "use_dmc": config.use_dmc,
                 "fast_path_hit": fast_path_hit,
                 "speculative_fallback_used": speculative_fallback_used,
                 "fast_path_latency_ms": fast_path_latency_ms,
                 "slow_path_latency_ms": slow_path_latency_ms,
-                "latency_ms": latency_ms,
                 "extracted_move": uci_str,
                 "played_move": played_move,
-                "is_legal": is_legal,
                 "fallback_used": fallback_used,
-                "centipawn_loss": cpl,
                 "best_engine_move": best_move,
                 "eval_before": eval_before,
                 "eval_after": eval_after,
@@ -582,6 +621,31 @@ def run(config, skip_preflight=False):
     metrics_path = os.path.join(run_dir, "metrics.json")
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=2)
+
+    # ── Write game_results.json (Detailed Telemetry) ────
+    results_path = os.path.join(run_dir, "game_results.json")
+    game_results_payload = {
+        "run_id": config.run_id,
+        "mode": config.mode,
+        "summary": metrics,
+        "moves": [
+            {
+                "game_id": r.get("game_id"),
+                "turn_number": r.get("turn_number"),
+                "mode": r.get("mode"),
+                "turn_latency_ms": r.get("turn_latency_ms"),
+                "move_legality": r.get("move_legality"),
+                "prompt_tokens": r.get("prompt_tokens"),
+                "generation_tokens": r.get("generation_tokens"),
+                "cpl_stockfish": r.get("cpl_stockfish"),
+                "played_move": r.get("played_move"),
+                "fen": r.get("fen"),
+            }
+            for r in all_records
+        ],
+    }
+    with open(results_path, "w") as f:
+        json.dump(game_results_payload, f, indent=2)
 
     # ── Write manifest ───────────────────────────────────
     manifest = {

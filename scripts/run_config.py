@@ -31,8 +31,9 @@ class RunConfig:
     early_termination: bool = False
     engine_mode: str = "python"
     engine_path: str = "Source/vice"
+    mode: str = "single-stage"
     speculative: bool = False
-    use_dmc: bool = False
+    use_dmc: bool = True
     eval_acpl: bool = True
     stockfish_path: str = "stockfish"
 
@@ -41,6 +42,12 @@ class RunConfig:
     def validate(self):
         """Validate all parameters. Raises ValueError with clear messages."""
         errors = []
+
+        if self.mode not in ("single-stage", "ablation-speculative", "unconstrained"):
+            errors.append(
+                f"mode={self.mode!r} must be 'single-stage', 'ablation-speculative', or 'unconstrained'.\n"
+                f"  Fix: use --mode single-stage or --mode ablation-speculative"
+            )
 
         if self.engine_mode not in ("python", "uci"):
             errors.append(
@@ -178,10 +185,12 @@ Environment variables (override defaults, CLI overrides env):
                             help="Execution mode: direct Python HTTP calls or native C engine over UCI (default: python)")
         parser.add_argument("--engine-path", type=str, default="Source/vice",
                             help="Path to compiled C VICE binary (default: Source/vice)")
+        parser.add_argument("--mode", type=str, choices=["single-stage", "ablation-speculative", "unconstrained"], default="single-stage",
+                            help="Pipeline mode: 'single-stage' (DMC + KV-Cache, default), 'ablation-speculative' (2-stage retry benchmark), or 'unconstrained'")
         parser.add_argument("--speculative", action="store_true", default=False,
-                            help="Enable two-stage speculative decision loop (Fast-path draft -> Slow-path fallback)")
-        parser.add_argument("--use-dmc", action="store_true", default=False,
-                            help="Enable Dynamic Move Compression (group moves by origin square)")
+                            help="Alias/override for ablation speculative mode")
+        parser.add_argument("--use-dmc", action="store_true", default=True,
+                            help="Enable Dynamic Move Compression (default: on)")
         parser.add_argument("--no-acpl", dest="eval_acpl", action="store_false", default=True,
                             help="Disable Stockfish Centipawn Loss evaluation per move")
         parser.add_argument("--stockfish-path", type=str, default="stockfish",
@@ -191,9 +200,26 @@ Environment variables (override defaults, CLI overrides env):
 
         parsed = parser.parse_args(args)
 
+        mode = parsed.mode
+        if parsed.speculative:
+            mode = "ablation-speculative"
+
+        if mode == "single-stage":
+            constrained_decoding = True
+            use_dmc = True
+            speculative = False
+        elif mode == "ablation-speculative":
+            constrained_decoding = True
+            use_dmc = True
+            speculative = True
+        else: # unconstrained
+            constrained_decoding = False
+            use_dmc = False
+            speculative = False
+
         config = cls(
             temperature=parsed.temperature,
-            constrained_decoding=parsed.constrained_decoding,
+            constrained_decoding=constrained_decoding,
             seed=parsed.seed,
             model=parsed.model,
             ollama_base_url=parsed.ollama_url,
@@ -204,8 +230,9 @@ Environment variables (override defaults, CLI overrides env):
             early_termination=parsed.early_termination,
             engine_mode=parsed.engine_mode,
             engine_path=parsed.engine_path,
-            speculative=parsed.speculative,
-            use_dmc=parsed.use_dmc,
+            mode=mode,
+            speculative=speculative,
+            use_dmc=use_dmc,
             eval_acpl=parsed.eval_acpl,
             stockfish_path=parsed.stockfish_path,
         )
@@ -221,10 +248,9 @@ Environment variables (override defaults, CLI overrides env):
         print("=" * 60)
         print(f"  Run ID:              {self.run_id}")
         print(f"  Tag:                 {self.tag or '(none)'}")
+        print(f"  Execution Mode:      {self.mode.upper()}")
         print(f"  Model:               {self.model}")
         print(f"  Temperature:         {self.temperature}")
-        print(f"  Constrained Decoding:{' ON' if self.constrained_decoding else ' OFF'}")
-        print(f"  Speculative Mode:    {' ON' if self.speculative else ' OFF'}")
         print(f"  Dynamic Move Compr.: {' ON' if self.use_dmc else ' OFF'}")
         print(f"  Centipawn Loss Eval: {' ON' if self.eval_acpl else ' OFF'}")
         print(f"  Seed:                {self.seed}")
