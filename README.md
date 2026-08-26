@@ -85,42 +85,48 @@ Using the standardized CLI matrix runner (`scripts/run_game.py`) with the robust
 
 ```
 .
-├── web/                    # NEW — Flask web application
-│   ├── app.py              # Flask backend with REST API
+├── web/                    # Flask web application
+│   ├── app.py              # Flask backend with REST API & stateless FEN recovery
 │   ├── templates/
-│   │   ├── index.html      # Chess game page
-│   │   └── research.html   # Research data visualization
+│   │   ├── index.html      # Interactive Chess game page (promotion modal, PGN/FEN copy)
+│   │   └── research.html   # Research telemetry visualization
 │   └── static/
-│       ├── css/style.css    # UI styles (dark theme)
-│       └── js/game.js       # Client-side chess board & game logic
+│       ├── css/style.css    # UI styles (dark theme, responsive layout)
+│       └── js/game.js       # Client-side chess board & Web Audio sound effects
 ├── Source/                  # C source — VICE engine + LLM additions
-│   ├── llm_search.c        # [ADDED] LLM search entry point + legal move builder
-│   ├── http_client.c       # [ADDED] Ollama HTTP integration via libcurl + cJSON
-│   ├── llm_parser.c        # [ADDED] UCI move extraction from raw LLM response
-│   ├── telemetry.c         # [ADDED] CSV telemetry logging
-│   ├── cJSON.c/h           # [ADDED] JSON parser (MIT, Dave Gamble)
-│   ├── search.c            # [VICE, modified] Alpha-beta search + LLM fallback
-│   ├── vice.c              # [VICE, modified] Engine entry point + curl init
-│   ├── uci.c               # [VICE, modified] UCI protocol handler
-│   ├── defs.h              # [VICE, modified] Constants, types, macros
-│   ├── evaluate.c          # [VICE, original] Position evaluation
-│   ├── movegen.c           # [VICE, original] Move generation
-│   ├── board.c             # [VICE, original] Board representation (10x12)
-│   ├── makefile             # Build configuration
-│   └── ...                 # [VICE, original] attack, bitboards, etc.
-├── gui.py                  # Tkinter GUI — runs automated tournaments
-├── analyze.py              # Data analysis + publication-ready charts
-├── data/
-│   ├── llm_research_log.csv      # Engine telemetry (464 rows)
-│   └── llm_hallucinations.csv    # GUI-captured errors (298 rows)
-├── docs/
-│   └── ViceReadMe.html     # Original VICE engine documentation
-├── api/                    # NEW — Vercel serverless entry point
-│   └── index.py            # Wraps Flask app for Vercel deployment
+│   ├── llm_search.c        # LLM search entry point + legal move builder
+│   ├── http_client.c/h     # Ollama HTTP integration via libcurl + cJSON
+│   ├── llm_parser.c/h      # UCI/SAN move extraction and matching from raw LLM output
+│   ├── telemetry.c/h       # CSV telemetry logging
+│   ├── cJSON.c/h           # Embedded JSON parser (MIT, Dave Gamble)
+│   ├── search.c            # Alpha-beta search with classical fallback
+│   ├── vice.c              # Engine entry point + curl lifecycle
+│   ├── uci.c               # UCI protocol handler with dynamic LLM options
+│   ├── defs.h              # Constants, types, macros, S_OPTIONS
+│   ├── makefile            # Build configuration (make all, debug, clean)
+│   └── ...                 # Attack, bitboards, evaluate, movegen, board, etc.
+├── scripts/                 # Research & Experimentation Suite
+│   ├── run_game.py         # Standardized CLI runner (direct Python or UCI engine)
+│   ├── run_config.py       # Canonical dataclass configuration & validation
+│   ├── run_experiment_matrix.sh # Mandatory 3-condition matrix runner
+│   ├── analyze_all.py      # Automated report & chart generation
+│   ├── check_ollama_env.py # Environment connectivity & model preflight checker
+│   └── md_to_docx.py       # IEEE paper markdown to Word converter
+├── tests/                  # Automated Test Suite (unittest / pytest)
+│   ├── test_run_config.py  # Configuration validation tests
+│   ├── test_uci_parser.py  # UCI/SAN extraction & regex tests
+│   ├── test_web_api.py     # Flask routes & stateless FEN API tests
+│   └── test_c_engine.py    # Native C engine UCI integration tests
+├── .github/workflows/      # Continuous Integration (CI)
+│   └── ci.yml              # Automated build, test, and lint workflow
+├── gui.py                  # Tkinter Desktop GUI tournament runner
+├── reports/                # Generated research reports & charts
+├── runs/                   # Experiment run outputs (manifest, metrics, JSONL)
+├── docs/                   # IEEE research paper, deep dive, schemas
+├── api/index.py            # Vercel serverless function entry point
 ├── vercel.json             # Vercel build & routing configuration
-├── .gitignore
-├── requirements.txt
-├── LICENSE
+├── requirements.txt        # Python dependencies
+├── LICENSE                 # GNU GPL v3
 └── README.md
 ```
 

@@ -72,6 +72,7 @@ int CheckBoard(const S_BOARD *pos) {
 	ASSERT(pcount == pos->pceNum[bP]);
 	pcount = CNT(t_pawns[BOTH]);
 	ASSERT(pcount == (pos->pceNum[bP] + pos->pceNum[wP]));
+	(void)pcount;
 
 	// check bitboards squares
 	while(t_pawns[WHITE]) {

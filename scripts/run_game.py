@@ -159,15 +159,12 @@ def extract_uci_move(raw_response, board=None):
     if re.match(r'^[a-h][1-8][a-h][1-8][qrbn]?$', text):
         return text
 
-    # 3. Try to find a 4-5 char UCI pattern with optional piece prefix or hyphen/capture symbol
-    # e.g., Nb8c6 -> b8c6, e2-e4 -> e2e4, b8xc6 -> b8c6
-    match = re.search(r'\b[KQRBN]?[a-h][1-8][-x]?[a-h][1-8][qrbn]?\b', text, re.IGNORECASE)
+    # 3. Try to find a UCI pattern with optional piece prefix or hyphen/capture symbol
+    # e.g., Nb8c6 -> b8c6, e2-e4 -> e2e4, b8xc6 -> b8c6, Pe2-e4 -> e2e4
+    match = re.search(r'\b(?:[KQRBNPkqrbnp])?([a-h][1-8])[-xX]?([a-h][1-8])([qrbnQRBN]?)\b', text)
     if match:
-        candidate = match.group(0)
-        # Strip piece prefix
-        candidate = re.sub(r'^[KQRBNkqrbn]', '', candidate)
-        # Strip hyphens and capture symbols
-        candidate = candidate.replace('-', '').replace('x', '').replace('X', '')
+        from_sq, to_sq, promo = match.groups()
+        candidate = f"{from_sq.lower()}{to_sq.lower()}{promo.lower()}"
         if re.match(r'^[a-h][1-8][a-h][1-8][qrbn]?$', candidate):
             return candidate
 
@@ -196,7 +193,7 @@ def extract_uci_move(raw_response, board=None):
     return ""
 
 
-def play_game(config, game_num, run_dir):
+def play_game(config, game_num, run_dir, uci_engine=None):
     """Play a single game (White=random, Black=LLM) and return per-move records."""
     board = chess.Board()
     rng = random.Random(config.seed + game_num)
@@ -212,12 +209,24 @@ def play_game(config, game_num, run_dir):
             move = rng.choice(legal)
             board.push(move)
         else:
-            # Black plays via LLM
+            # Black plays via LLM (direct Python or C engine over UCI)
             fen = board.fen()
             legal_moves = [m.uci() for m in board.legal_moves]
 
-            raw_response, latency_ms = query_ollama(config, fen, legal_moves)
-            uci_str = extract_uci_move(raw_response, board)
+            if config.engine_mode == "uci" and uci_engine is not None:
+                start_t = time.time()
+                try:
+                    res = uci_engine.play(board, chess.engine.Limit(time=config.time_limit))
+                    latency_ms = int((time.time() - start_t) * 1000)
+                    uci_str = res.move.uci() if res.move else ""
+                    raw_response = f"bestmove {uci_str}"
+                except Exception as e:
+                    latency_ms = int((time.time() - start_t) * 1000)
+                    uci_str = ""
+                    raw_response = f"error: {e}"
+            else:
+                raw_response, latency_ms = query_ollama(config, fen, legal_moves)
+                uci_str = extract_uci_move(raw_response, board)
 
             is_legal = 0
             fallback_used = 1
@@ -309,27 +318,51 @@ def run(config, skip_preflight=False):
     game_results = []
     raw_output_path = os.path.join(run_dir, "raw_outputs.jsonl")
 
+    uci_engine = None
+    if config.engine_mode == "uci":
+        print(f"♟ Initializing UCI engine at {config.engine_path}...")
+        try:
+            uci_engine = chess.engine.SimpleEngine.popen_uci(config.engine_path)
+            uci_engine.configure({
+                "LLM_Model": config.model,
+                "LLM_Url": config.ollama_base_url,
+                "LLM_Temperature": str(config.temperature),
+                "LLM_Constrained": config.constrained_decoding,
+                "LLM_Timeout": int(config.time_limit),
+            })
+            print("✓ Engine initialized and configured via UCI.\n")
+        except Exception as e:
+            print(f"✗ Failed to start UCI engine: {e}")
+            sys.exit(1)
+
     print(f"Starting {config.num_games} games...\n")
 
-    for game_num in range(1, config.num_games + 1):
-        game_start = time.time()
-        records, result = play_game(config, game_num, run_dir)
-        game_time = time.time() - game_start
+    try:
+        for game_num in range(1, config.num_games + 1):
+            game_start = time.time()
+            records, result = play_game(config, game_num, run_dir, uci_engine=uci_engine)
+            game_time = time.time() - game_start
 
-        all_records.extend(records)
-        game_results.append({"game": game_num, "result": result, "llm_moves": len(records), "duration_s": round(game_time, 1)})
+            all_records.extend(records)
+            game_results.append({"game": game_num, "result": result, "llm_moves": len(records), "duration_s": round(game_time, 1)})
 
-        # Append raw outputs incrementally
-        with open(raw_output_path, "a") as f:
-            for rec in records:
-                f.write(json.dumps(rec) + "\n")
+            # Append raw outputs incrementally
+            with open(raw_output_path, "a") as f:
+                for rec in records:
+                    f.write(json.dumps(rec) + "\n")
 
-        legal = sum(1 for r in records if r["is_legal"])
-        total = len(records)
-        rate = (legal / total * 100) if total > 0 else 0
-        print(f"  Game {game_num:3d}/{config.num_games}: {result:7s}  "
-              f"LLM moves: {total:3d}  Legal: {legal}/{total} ({rate:.0f}%)  "
-              f"Time: {game_time:.1f}s")
+            legal = sum(1 for r in records if r["is_legal"])
+            total = len(records)
+            rate = (legal / total * 100) if total > 0 else 0
+            print(f"  Game {game_num:3d}/{config.num_games}: {result:7s}  "
+                  f"LLM moves: {total:3d}  Legal: {legal}/{total} ({rate:.0f}%)  "
+                  f"Time: {game_time:.1f}s")
+    finally:
+        if uci_engine:
+            try:
+                uci_engine.quit()
+            except Exception:
+                pass
 
     # ── Compute metrics ──────────────────────────────────
     total_llm = len(all_records)

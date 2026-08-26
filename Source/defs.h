@@ -162,6 +162,12 @@ typedef struct {
 
 typedef struct {
 	int UseBook;
+	int LLM_Enabled;
+	char LLM_Model[64];
+	char LLM_Url[256];
+	float LLM_Temperature;
+	int LLM_Constrained;
+	int LLM_Timeout;
 } S_OPTIONS;
 
 
@@ -340,14 +346,10 @@ extern void Console_Loop(S_BOARD *pos, S_SEARCHINFO *info);
 // polybook.c
 extern int GetBookMove(S_BOARD *board);
 extern void CleanPolyBook();
-extern void InitPolyBook() ;
+extern void InitPolyBook();
 
-// research mode flag
-extern int ResearchMode;
-
-//research.c
-extern int ResearchMode;
-
+// options init
+extern void InitEngineOptions();
 
 #endif
 

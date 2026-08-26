@@ -225,6 +225,86 @@ main {
     transform: translateY(-1px);
 }
 
+.board-tools {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    justify-content: center;
+    width: 100%;
+}
+
+.btn-sm {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    border-radius: 6px;
+}
+
+.btn-outline {
+    background: transparent;
+    color: #8899a6;
+    border: 1px solid #334455;
+}
+
+.btn-outline:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #ffffff;
+    border-color: #53a8b6;
+}
+
+/* ── Promotion Modal ───────────────────────────────────────── */
+.promotion-modal {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    border-radius: 4px;
+    backdrop-filter: blur(2px);
+}
+
+.promotion-dialog {
+    background: #16213e;
+    border: 2px solid #53a8b6;
+    border-radius: 10px;
+    padding: 1.25rem;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.8);
+}
+
+.promotion-dialog h4 {
+    color: #f5c518;
+    margin-bottom: 0.75rem;
+    font-size: 1rem;
+}
+
+.promotion-choices {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.promo-btn {
+    background: #0f3460;
+    color: #ffffff;
+    border: 1px solid #53a8b6;
+    border-radius: 6px;
+    padding: 0.5rem 0.8rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.promo-btn:hover {
+    background: #e94560;
+    border-color: #e94560;
+    transform: scale(1.05);
+}
+
 /* ── Info Panel ────────────────────────────────────────────── */
 .info-panel {
     width: 320px;

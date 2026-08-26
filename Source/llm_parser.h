@@ -1,12 +1,12 @@
-/*
- * llm_parser.h — UCI move extraction interface
- * Author: Arpit Panigrahi (2026)
- */
 #ifndef LLM_PARSER_H
 #define LLM_PARSER_H
 
-// LLM parser: scans a free-form text block (e.g. an LLM reply)
-// and extracts the first valid 4/5-character UCI move token.
+#include "defs.h"
+
+// Scans a free-form text block and extracts the first valid UCI move token.
 void ExtractUCI(const char *raw_response, char *uci_move);
+
+// Enhanced version that also matches SAN (e.g. Nf3, O-O, exd5) against legal moves if coordinate parsing fails.
+void ExtractUCIEnhanced(const char *raw_response, char *uci_move, S_BOARD *pos);
 
 #endif

@@ -25,12 +25,32 @@
                     <span id="turn-indicator" class="badge badge-turn">White to move</span>
                 </div>
 
-                <div id="chess-board" class="chess-board"></div>
+                <div class="board-wrapper" style="position: relative;">
+                    <div id="chess-board" class="chess-board"></div>
+                    <!-- Promotion Modal Overlay -->
+                    <div id="promotion-modal" class="promotion-modal" style="display: none;">
+                        <div class="promotion-dialog">
+                            <h4>Promote to:</h4>
+                            <div class="promotion-choices">
+                                <button class="promo-btn" onclick="selectPromotion('q')">♕ Queen</button>
+                                <button class="promo-btn" onclick="selectPromotion('r')">♖ Rook</button>
+                                <button class="promo-btn" onclick="selectPromotion('b')">♗ Bishop</button>
+                                <button class="promo-btn" onclick="selectPromotion('n')">♘ Knight</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
                 <div class="board-controls">
                     <button id="btn-new-game" class="btn btn-primary" onclick="newGame()">♔ New Game</button>
                     <button id="btn-undo" class="btn btn-secondary" onclick="undoMove()">↩ Undo</button>
                     <button id="btn-flip" class="btn btn-secondary" onclick="flipBoard()">⇅ Flip Board</button>
+                </div>
+
+                <div class="board-tools">
+                    <button class="btn btn-sm btn-outline" onclick="copyFEN()">📋 Copy FEN</button>
+                    <button class="btn btn-sm btn-outline" onclick="copyPGN()">📄 Copy PGN</button>
+                    <button id="btn-sound" class="btn btn-sm btn-outline" onclick="toggleSound()">🔊 Sound: ON</button>
                 </div>
             </div>
 
@@ -52,7 +72,10 @@
 
                 <!-- Move History -->
                 <div class="panel-section">
-                    <h3>Move History</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <h3>Move History</h3>
+                        <span id="move-count" style="font-size: 0.8rem; color: #888;">0 plies</span>
+                    </div>
                     <div id="move-history" class="move-history">
                         <em>No moves yet</em>
                     </div>

@@ -29,11 +29,15 @@ void LogLLMAction(const char *fen, float temperature, long latency_ms,
 
     // 2. Open in Append mode ("a"). 
     // This adds to the end of the file, or creates it if it doesn't exist.
-    FILE *log_file = fopen("runs/llm_research_log.csv", "a");
+    FILE *log_file = fopen("runs/llm_research_log.csv", "a+");
     if (log_file == NULL) {
-        // If we can't open the file (e.g., a permissions error in Fedora), just return.
-        // We NEVER want a logging failure to crash the actual chess engine.
         return; 
+    }
+
+    // Write header if this is a newly created / empty file
+    fseek(log_file, 0, SEEK_END);
+    if (ftell(log_file) == 0) {
+        fprintf(log_file, "Timestamp,FEN,Temperature,Latency_ms,Extracted_Move,Is_Legal,Fallback_Used,Raw_Response\n");
     }
 
     // 2. Get a standard UNIX timestamp for chronological sorting

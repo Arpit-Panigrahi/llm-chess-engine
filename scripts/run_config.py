@@ -29,12 +29,26 @@ class RunConfig:
     time_limit: float = 15.0
     max_turns: int = 200
     early_termination: bool = False
+    engine_mode: str = "python"
+    engine_path: str = "Source/vice"
 
     # ── Validation ──────────────────────────────────────────
 
     def validate(self):
         """Validate all parameters. Raises ValueError with clear messages."""
         errors = []
+
+        if self.engine_mode not in ("python", "uci"):
+            errors.append(
+                f"engine_mode={self.engine_mode!r} must be 'python' or 'uci'.\n"
+                f"  Fix: use --engine-mode python or --engine-mode uci"
+            )
+
+        if self.engine_mode == "uci" and not os.path.exists(self.engine_path):
+            errors.append(
+                f"engine_path={self.engine_path!r} does not exist.\n"
+                f"  Fix: build the C engine first (cd Source && make) or specify --engine-path"
+            )
 
         if not (0.0 <= self.temperature <= 2.0):
             errors.append(
@@ -154,8 +168,10 @@ Environment variables (override defaults, CLI overrides env):
                             help="Time limit per move in seconds (default: 15.0)")
         parser.add_argument("--max-turns", type=int, default=200,
                             help="Maximum half-moves (ply) to play per game (default: 200)")
-        parser.add_argument("--early-termination", action="store_true", default=False,
-                            help="Abort game immediately on first hallucination (GUI style)")
+        parser.add_argument("--engine-mode", type=str, choices=["python", "uci"], default="python",
+                            help="Execution mode: direct Python HTTP calls or native C engine over UCI (default: python)")
+        parser.add_argument("--engine-path", type=str, default="Source/vice",
+                            help="Path to compiled C VICE binary (default: Source/vice)")
         parser.add_argument("--skip-preflight", action="store_true", default=False,
                             help="Skip Ollama connectivity check")
 
@@ -172,6 +188,8 @@ Environment variables (override defaults, CLI overrides env):
             time_limit=parsed.time_limit,
             max_turns=parsed.max_turns,
             early_termination=parsed.early_termination,
+            engine_mode=parsed.engine_mode,
+            engine_path=parsed.engine_path,
         )
         config.validate()
         return config, parsed.skip_preflight

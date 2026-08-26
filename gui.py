@@ -1,18 +1,17 @@
+import csv
+import os
+import random
+import sys
+from datetime import datetime
 import tkinter as tk
 from tkinter import messagebox
+
 import chess
 import chess.engine
-import sys
-import csv          # NEW
-import os           # NEW
-from datetime import datetime # NEW
-
 
 # --- CONFIGURATION ---
 BOARD_SIZE = 600
 SQUARE_SIZE = BOARD_SIZE // 8
-# CHANGED: Updated for Linux/WSL path — engine binary lives in Source/
-import os
 ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Source", "vice")
 
 # Unicode Pieces for visuals
@@ -89,7 +88,6 @@ class ChessGUI:
 
         # --- WHITE'S TURN (Random Move) ---
         if self.board.turn == chess.WHITE:
-            import random
             legal_moves = list(self.board.legal_moves)
             random_move = random.choice(legal_moves)
             self.board.push(random_move)

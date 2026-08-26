@@ -1,6 +1,6 @@
 /**
  * LLM Chess Engine — Client-side Game Logic
- * Handles board rendering, piece interaction, and API communication.
+ * Handles board rendering, piece interaction, Web Audio synthesis, and API communication.
  */
 
 // ── Unicode Piece Symbols ─────────────────────────────────────
@@ -23,7 +23,81 @@ let gameState = {
     flipped: false,
     engineThinking: false,
     lastMove: null,
+    pendingPromotion: null,
+    soundEnabled: true,
 };
+
+// ── Web Audio Synthesizer ─────────────────────────────────────
+let audioCtx = null;
+
+function getAudioContext() {
+    if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+            audioCtx = new AudioContextClass();
+        }
+    }
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    return audioCtx;
+}
+
+function playSound(type) {
+    if (!gameState.soundEnabled) return;
+    try {
+        const ctx = getAudioContext();
+        if (!ctx) return;
+
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        const now = ctx.currentTime;
+
+        if (type === 'move') {
+            osc.frequency.setValueAtTime(440, now);
+            osc.frequency.exponentialRampToValueAtTime(330, now + 0.08);
+            gain.gain.setValueAtTime(0.15, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+            osc.start(now);
+            osc.stop(now + 0.08);
+        } else if (type === 'capture') {
+            osc.frequency.setValueAtTime(600, now);
+            osc.frequency.exponentialRampToValueAtTime(250, now + 0.12);
+            gain.gain.setValueAtTime(0.25, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+            osc.start(now);
+            osc.stop(now + 0.12);
+        } else if (type === 'check') {
+            osc.frequency.setValueAtTime(800, now);
+            osc.frequency.setValueAtTime(1000, now + 0.08);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+            osc.start(now);
+            osc.stop(now + 0.2);
+        } else if (type === 'gameover') {
+            osc.frequency.setValueAtTime(523.25, now);
+            osc.frequency.setValueAtTime(659.25, now + 0.1);
+            osc.frequency.setValueAtTime(783.99, now + 0.2);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+            osc.start(now);
+            osc.stop(now + 0.4);
+        }
+    } catch (e) {
+        // Audio playback failure should not interrupt game loop
+    }
+}
+
+function toggleSound() {
+    gameState.soundEnabled = !gameState.soundEnabled;
+    const btn = document.getElementById('btn-sound');
+    if (btn) {
+        btn.textContent = gameState.soundEnabled ? '🔊 Sound: ON' : '🔇 Sound: OFF';
+    }
+}
 
 // ── File/Rank Helpers ─────────────────────────────────────────
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
@@ -36,6 +110,7 @@ function squareName(col, row) {
 // ── Board Rendering ───────────────────────────────────────────
 function renderBoard() {
     const boardEl = document.getElementById('chess-board');
+    if (!boardEl) return;
     boardEl.innerHTML = '';
     boardEl.classList.remove('thinking');
 
@@ -48,7 +123,6 @@ function renderBoard() {
             const col = gameState.flipped ? 7 - displayCol : displayCol;
             const row = gameState.flipped ? displayRow : 7 - displayRow;
             const sq = squareName(col, row);
-            // In chess, a1 (col=0, row=0) is a dark square
             const isDark = (col + row) % 2 === 0;
 
             const squareEl = document.createElement('div');
@@ -102,6 +176,7 @@ function renderBoard() {
 function onSquareClick(sq) {
     if (gameState.isGameOver || gameState.engineThinking) return;
     if (gameState.turn !== 'white') return;  // Only allow moves on White's turn
+    if (gameState.pendingPromotion) return;
 
     if (gameState.selectedSquare === null) {
         // Select a piece
@@ -116,20 +191,31 @@ function onSquareClick(sq) {
         renderBoard();
     } else {
         // Try to move
-        const moveUci = gameState.selectedSquare + sq;
+        const fromSq = gameState.selectedSquare;
+        const toSq = sq;
+        const movePrefix = fromSq + toSq;
 
         // Check if this is a valid move destination
         const validMoves = gameState.legalMoves.filter(
-            m => m.startsWith(gameState.selectedSquare) && m.substring(2, 4) === sq
+            m => m.startsWith(movePrefix)
         );
 
         if (validMoves.length > 0) {
-            // Auto-promote to queen (matches original Tkinter GUI behavior)
+            // Check if this is a pawn promotion (moving to rank 8)
+            const piece = gameState.pieces[fromSq];
+            if (piece && piece.symbol === 'P' && toSq[1] === '8') {
+                // Show promotion selector
+                gameState.pendingPromotion = { from: fromSq, to: toSq, moves: validMoves };
+                const promoModal = document.getElementById('promotion-modal');
+                if (promoModal) promoModal.style.display = 'flex';
+                return;
+            }
+
             const move = validMoves[0];
             gameState.selectedSquare = null;
             makeMove(move);
         } else {
-            // Try selecting a different piece
+            // Try selecting a different white piece
             const piece = gameState.pieces[sq];
             if (piece && piece.color === 'white') {
                 gameState.selectedSquare = sq;
@@ -139,6 +225,22 @@ function onSquareClick(sq) {
             renderBoard();
         }
     }
+}
+
+function selectPromotion(pieceLetter) {
+    if (!gameState.pendingPromotion) return;
+    const { from, to, moves } = gameState.pendingPromotion;
+    const targetMove = from + to + pieceLetter.toLowerCase();
+
+    const promoModal = document.getElementById('promotion-modal');
+    if (promoModal) promoModal.style.display = 'none';
+
+    gameState.pendingPromotion = null;
+    gameState.selectedSquare = null;
+
+    // Verify move is in legal moves or fallback to first
+    const moveToSend = moves.includes(targetMove) ? targetMove : (moves[0] || targetMove);
+    makeMove(moveToSend);
 }
 
 // ── API Calls ─────────────────────────────────────────────────
@@ -159,12 +261,18 @@ async function newGame() {
         gameState.history = [];
         gameState.engineThinking = false;
         gameState.lastMove = null;
+        gameState.pendingPromotion = null;
+
+        const promoModal = document.getElementById('promotion-modal');
+        if (promoModal) promoModal.style.display = 'none';
 
         // Hide hallucination alert
-        document.getElementById('hallucination-alert').style.display = 'none';
+        const alertBox = document.getElementById('hallucination-alert');
+        if (alertBox) alertBox.style.display = 'none';
 
         updateUI();
         updateStatus('Your turn! Click a white piece to move.');
+        playSound('move');
     } catch (err) {
         updateStatus('Error starting new game: ' + err.message);
     }
@@ -172,10 +280,16 @@ async function newGame() {
 
 async function makeMove(moveUci) {
     try {
+        const isCapture = gameState.pieces[moveUci.substring(2, 4)] !== undefined;
+
         const res = await fetch('/api/move', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ game_id: gameState.gameId, move: moveUci }),
+            body: JSON.stringify({ 
+                game_id: gameState.gameId, 
+                move: moveUci,
+                fen: gameState.fen 
+            }),
         });
 
         if (!res.ok) {
@@ -194,10 +308,19 @@ async function makeMove(moveUci) {
             color: 'white'
         });
 
+        if (data.is_check) {
+            playSound('check');
+        } else if (isCapture) {
+            playSound('capture');
+        } else {
+            playSound('move');
+        }
+
         updateUI();
 
         if (data.is_game_over) {
             showGameOver(data.result);
+            playSound('gameover');
             return;
         }
 
@@ -219,11 +342,16 @@ async function requestEngineMove() {
         const res = await fetch('/api/engine-move', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ game_id: gameState.gameId }),
+            body: JSON.stringify({ 
+                game_id: gameState.gameId,
+                fen: gameState.fen
+            }),
         });
 
         const data = await res.json();
         gameState.engineThinking = false;
+
+        const wasCapture = data.engine_move && gameState.pieces[data.engine_move.substring(2, 4)] !== undefined;
 
         updateGameState(data);
         gameState.lastMove = data.engine_move;
@@ -234,23 +362,35 @@ async function requestEngineMove() {
                 move: data.engine_move,
                 color: 'black'
             });
+
+            if (data.is_check) {
+                playSound('check');
+            } else if (wasCapture) {
+                playSound('capture');
+            } else {
+                playSound('move');
+            }
         }
 
         // Update engine badge
         const badge = document.getElementById('engine-badge');
-        badge.textContent = 'Engine: ' + (data.engine_name || 'unknown');
+        if (badge) {
+            badge.textContent = 'Engine: ' + (data.engine_name || 'unknown');
+        }
 
         // Check for hallucination
         if (data.hallucination) {
-            showHallucination('The LLM attempted an illegal move! Falling back to random move.');
+            showHallucination('The LLM attempted an illegal move! Falling back to classical search.');
         } else {
-            document.getElementById('hallucination-alert').style.display = 'none';
+            const alertBox = document.getElementById('hallucination-alert');
+            if (alertBox) alertBox.style.display = 'none';
         }
 
         updateUI();
 
         if (data.is_game_over) {
             showGameOver(data.result);
+            playSound('gameover');
             return;
         }
 
@@ -264,13 +404,16 @@ async function requestEngineMove() {
 }
 
 async function undoMove() {
-    if (!gameState.gameId) return;
+    if (!gameState.gameId && !gameState.fen) return;
 
     try {
         const res = await fetch('/api/undo', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ game_id: gameState.gameId }),
+            body: JSON.stringify({ 
+                game_id: gameState.gameId,
+                fen: gameState.fen 
+            }),
         });
 
         const data = await res.json();
@@ -289,6 +432,7 @@ async function undoMove() {
 
         updateUI();
         updateStatus('Move undone. Your turn!');
+        playSound('move');
     } catch (err) {
         updateStatus('Error undoing move: ' + err.message);
     }
@@ -297,6 +441,40 @@ async function undoMove() {
 function flipBoard() {
     gameState.flipped = !gameState.flipped;
     renderBoard();
+}
+
+function copyFEN() {
+    if (!gameState.fen) {
+        updateStatus('No game in progress to copy FEN.');
+        return;
+    }
+    navigator.clipboard.writeText(gameState.fen).then(() => {
+        updateStatus('✓ FEN copied to clipboard: <code>' + gameState.fen + '</code>');
+    }).catch(() => {
+        updateStatus('FEN: ' + gameState.fen);
+    });
+}
+
+function copyPGN() {
+    if (!gameState.history || gameState.history.length === 0) {
+        updateStatus('No moves to copy PGN.');
+        return;
+    }
+    let pgn = '';
+    for (let i = 0; i < gameState.history.length; i += 2) {
+        const moveNum = Math.floor(i / 2) + 1;
+        const white = gameState.history[i]?.move || '';
+        const black = gameState.history[i + 1]?.move || '';
+        pgn += `${moveNum}. ${white} ${black} `.trim() + ' ';
+    }
+    if (gameState.result) {
+        pgn += gameState.result;
+    }
+    navigator.clipboard.writeText(pgn.trim()).then(() => {
+        updateStatus('✓ PGN copied to clipboard!');
+    }).catch(() => {
+        updateStatus('PGN: ' + pgn);
+    });
 }
 
 // ── UI Update Helpers ─────────────────────────────────────────
@@ -318,6 +496,7 @@ function updateUI() {
 
 function updateTurnIndicator() {
     const indicator = document.getElementById('turn-indicator');
+    if (!indicator) return;
     if (gameState.isGameOver) {
         indicator.textContent = 'Game Over';
         indicator.style.color = '#e94560';
@@ -331,11 +510,18 @@ function updateTurnIndicator() {
 }
 
 function updateStatus(message) {
-    document.getElementById('game-status').innerHTML = message;
+    const statusEl = document.getElementById('game-status');
+    if (statusEl) statusEl.innerHTML = message;
 }
 
 function updateMoveHistory() {
     const historyEl = document.getElementById('move-history');
+    const countEl = document.getElementById('move-count');
+    if (!historyEl) return;
+
+    if (countEl) {
+        countEl.textContent = `${gameState.history.length} plies`;
+    }
 
     if (gameState.history.length === 0) {
         historyEl.innerHTML = '<em>No moves yet</em>';
@@ -375,11 +561,28 @@ function showGameOver(result) {
 
 function showHallucination(msg) {
     const alertEl = document.getElementById('hallucination-alert');
-    document.getElementById('hallucination-msg').textContent = msg;
-    alertEl.style.display = 'block';
+    const msgEl = document.getElementById('hallucination-msg');
+    if (msgEl) msgEl.textContent = msg;
+    if (alertEl) alertEl.style.display = 'block';
 }
+
+// ── Keyboard Shortcuts ────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+    // Avoid triggering while typing in inputs
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    if (e.key === 'n' || e.key === 'N') {
+        newGame();
+    } else if (e.key === 'f' || e.key === 'F') {
+        flipBoard();
+    } else if (e.key === 'z' || e.key === 'Z' || e.key === 'u' || e.key === 'U') {
+        undoMove();
+    } else if (e.key === 'm' || e.key === 'M') {
+        toggleSound();
+    }
+});
 
 // ── Initialize ────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-    renderBoard();
+    newGame();
 });

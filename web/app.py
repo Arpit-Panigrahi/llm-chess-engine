@@ -33,6 +33,16 @@ LLM_ENGINE_ENABLED = os.environ.get("LLM_ENGINE_ENABLED", "").lower() in {"1", "
 games = {}
 
 
+# ── Cache for Research Data ──────────────────────────────────
+_research_cache = {
+    "last_loaded": 0,
+    "log": [],
+    "hallucinations": [],
+    "conditions": {},
+    "stats": {},
+}
+
+
 # ── Helper Functions ──────────────────────────────────────────
 
 def get_board_state(board):
@@ -41,8 +51,6 @@ def get_board_state(board):
     for sq in chess.SQUARES:
         piece = board.piece_at(sq)
         if piece:
-            col = chess.square_file(sq)
-            row = chess.square_rank(sq)
             pieces[chess.square_name(sq)] = {
                 "symbol": piece.symbol(),
                 "color": "white" if piece.color == chess.WHITE else "black",
@@ -62,26 +70,28 @@ def get_board_state(board):
     }
 
 
-def try_engine_move(board):
+def try_engine_move(board, time_limit=5.0):
     """
     Try to get a move from the VICE engine.
     Falls back to a random legal move if the engine is unavailable.
     Returns (move, engine_name, hallucination_detected).
     """
-    # Try the VICE engine first (only when explicitly enabled)
     if LLM_ENGINE_ENABLED and os.path.exists(ENGINE_PATH):
+        engine = None
         try:
-            engine = chess.engine.SimpleEngine.popen_uci(ENGINE_PATH)
-            try:
-                result = engine.play(board, chess.engine.Limit(time=5.0))
-                move = result.move
-                engine.quit()
-                return move, "vice-llm", False
-            except chess.engine.EngineError as e:
-                engine.quit()
-                return None, "vice-llm", True
+            engine = chess.engine.SimpleEngine.popen_uci(ENGINE_PATH, timeout=10)
+            result = engine.play(board, chess.engine.Limit(time=time_limit))
+            return result.move, "vice-llm", False
+        except chess.engine.EngineError:
+            return None, "vice-llm", True
         except Exception:
             pass
+        finally:
+            if engine is not None:
+                try:
+                    engine.quit()
+                except Exception:
+                    pass
 
     # Fallback: random legal move
     legal_moves = list(board.legal_moves)
@@ -93,76 +103,86 @@ def try_engine_move(board):
     return None, "none", False
 
 
-def load_research_data():
-    """Load research data dynamically from runs/ directory."""
+def load_research_data(force_reload=False):
+    """Load research data dynamically from runs/ directory with caching."""
+    global _research_cache
+    now = datetime.now().timestamp()
+
+    # Reuse cache if loaded within the last 15 seconds and not forced
+    if not force_reload and (now - _research_cache["last_loaded"]) < 15 and _research_cache["log"]:
+        return _research_cache["log"], _research_cache["hallucinations"], _research_cache["conditions"], _research_cache["stats"]
+
     research_log = []
     hallucinations = []
+    conditions = {
+        "t02_unconstrained": {"total": 0, "legal": 0},
+        "t08_unconstrained": {"total": 0, "legal": 0},
+        "t08_constrained": {"total": 0, "legal": 0}
+    }
 
     runs_dir = os.path.join(PROJECT_ROOT, "runs")
-    if not os.path.isdir(runs_dir):
-        return research_log, hallucinations
+    if os.path.isdir(runs_dir):
+        run_entries = []
+        for entry in os.listdir(runs_dir):
+            run_path = os.path.join(runs_dir, entry)
+            if os.path.isdir(run_path):
+                raw_path = os.path.join(run_path, "raw_outputs.jsonl")
+                if os.path.isfile(raw_path):
+                    run_entries.append((entry, raw_path))
 
-    # Find all run directories
-    run_entries = []
-    for entry in os.listdir(runs_dir):
-        run_path = os.path.join(runs_dir, entry)
-        if os.path.isdir(run_path):
-            raw_path = os.path.join(run_path, "raw_outputs.jsonl")
-            if os.path.isfile(raw_path):
-                run_entries.append((entry, raw_path))
+        run_entries.sort(reverse=True)
 
-    # Sort runs chronologically (latest first)
-    run_entries.sort(reverse=True)
+        for run_id, raw_path in run_entries:
+            try:
+                with open(raw_path, "r") as f:
+                    for line in f:
+                        line_str = line.strip()
+                        if not line_str:
+                            continue
+                        try:
+                            record = json.loads(line_str)
+                            is_legal_val = record.get("is_legal", 0)
+                            temp = record.get("temperature", 0.0)
+                            constrained = record.get("constrained_decoding", False)
 
-    # Load records from raw_outputs.jsonl of all runs
-    for run_id, raw_path in run_entries:
-        try:
-            with open(raw_path, "r") as f:
-                for line in f:
-                    try:
-                        record = json.loads(line.strip())
-                        # Map to research log format
-                        research_log.append({
-                            "timestamp": record.get("timestamp", ""),
-                            "fen": record.get("fen", ""),
-                            "temperature": str(record.get("temperature", "")),
-                            "latency_ms": str(record.get("latency_ms", "")),
-                            "move": record.get("extracted_move", ""),
-                            "is_legal": str(record.get("is_legal", "")),
-                            "fallback_used": str(record.get("fallback_used", "")),
-                        })
-                        # If illegal, map to hallucination log format
-                        if record.get("is_legal") == 0:
-                            hallucinations.append({
-                                "Timestamp": record.get("timestamp", ""),
-                                "Game_Number": str(record.get("game_id", "")),
-                                "Turn_Number": str(record.get("turn_number", "")),
-                                "FEN": record.get("fen", ""),
-                                "Error_Message": f"Illegal move: '{record.get('extracted_move')}' (raw: '{record.get('raw_response')}')",
+                            research_log.append({
+                                "timestamp": record.get("timestamp", ""),
+                                "fen": record.get("fen", ""),
+                                "temperature": str(temp),
+                                "latency_ms": str(record.get("latency_ms", "")),
+                                "move": record.get("extracted_move", ""),
+                                "is_legal": str(is_legal_val),
+                                "fallback_used": str(record.get("fallback_used", "")),
                             })
-                    except (json.JSONDecodeError, KeyError):
-                        continue
-        except Exception:
-            continue
 
-    # Limit to latest 500 entries to prevent page bloat
-    return research_log[:500], hallucinations[:500]
+                            if is_legal_val == 0:
+                                hallucinations.append({
+                                    "Timestamp": record.get("timestamp", ""),
+                                    "Game_Number": str(record.get("game_id", "")),
+                                    "Turn_Number": str(record.get("turn_number", "")),
+                                    "FEN": record.get("fen", ""),
+                                    "Error_Message": f"Illegal move: '{record.get('extracted_move')}' (raw: '{record.get('raw_response')}')",
+                                })
 
+                            if temp == 0.2 and not constrained:
+                                cond_key = "t02_unconstrained"
+                            elif temp == 0.8 and not constrained:
+                                cond_key = "t08_unconstrained"
+                            elif temp == 0.8 and constrained:
+                                cond_key = "t08_constrained"
+                            else:
+                                cond_key = None
 
-# ── Routes ────────────────────────────────────────────────────
+                            if cond_key:
+                                conditions[cond_key]["total"] += 1
+                                if is_legal_val == 1:
+                                    conditions[cond_key]["legal"] += 1
 
-@app.route("/")
-def index():
-    """Serve the main chess game page."""
-    return render_template("index.html")
+                        except (json.JSONDecodeError, KeyError):
+                            continue
+            except Exception:
+                continue
 
-
-@app.route("/research")
-def research():
-    """Serve the research data visualization page."""
-    research_log, hallucinations = load_research_data()
-
-    # Compute summary stats
     total = len(research_log)
     legal_count = sum(1 for r in research_log if r["is_legal"] == "1")
     illegal_count = total - legal_count
@@ -176,10 +196,34 @@ def research():
         "total_hallucinations": len(hallucinations),
     }
 
+    _research_cache = {
+        "last_loaded": now,
+        "log": research_log,
+        "hallucinations": hallucinations,
+        "conditions": conditions,
+        "stats": stats,
+    }
+
+    return research_log, hallucinations, conditions, stats
+
+
+# ── Routes ────────────────────────────────────────────────────
+
+@app.route("/")
+def index():
+    """Serve the main chess game page."""
+    return render_template("index.html")
+
+
+@app.route("/research")
+def research():
+    """Serve the research data visualization page."""
+    research_log, hallucinations, _, stats = load_research_data()
+
     return render_template(
         "research.html",
         stats=stats,
-        research_log=research_log[:100],  # Limit to latest 100 for performance
+        research_log=research_log[:100],  # Limit to latest 100 for fast rendering
         hallucinations=hallucinations[:50],
     )
 
@@ -206,22 +250,38 @@ def new_game():
 
 @app.route("/api/move", methods=["POST"])
 def make_move():
-    """Handle a player's move."""
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
-
+    """Handle a player's move with stateless FEN fallback for serverless."""
+    data = request.get_json() or {}
     game_id = data.get("game_id")
     move_uci = data.get("move")
+    client_fen = data.get("fen")
 
-    if not game_id or not move_uci:
-        return jsonify({"error": "Missing game_id or move"}), 400
+    if not move_uci:
+        return jsonify({"error": "Missing move parameter"}), 400
+
+    if not game_id:
+        game_id = str(uuid.uuid4())[:8]
 
     game = games.get(game_id)
     if not game:
-        return jsonify({"error": "Game not found"}), 404
-
-    board = game["board"]
+        # Stateless recovery: initialize board from client FEN or default startpos
+        board = chess.Board(client_fen) if client_fen else chess.Board()
+        game = {
+            "board": board,
+            "history": [],
+            "hallucinations": [],
+            "start_time": datetime.now().isoformat(),
+        }
+        games[game_id] = game
+    else:
+        board = game["board"]
+        # If client passed a newer FEN, sync board
+        if client_fen and board.fen() != client_fen:
+            try:
+                board = chess.Board(client_fen)
+                game["board"] = board
+            except Exception:
+                pass
 
     if board.is_game_over():
         state = get_board_state(board)
@@ -231,7 +291,7 @@ def make_move():
     try:
         move = chess.Move.from_uci(move_uci)
 
-        # Check if the move is legal; try promotion to queen if not
+        # Check if the move is legal; try queen promotion if not specified
         if move not in board.legal_moves:
             promo_move = chess.Move.from_uci(move_uci + "q")
             if promo_move in board.legal_moves:
@@ -253,17 +313,32 @@ def make_move():
 
 @app.route("/api/engine-move", methods=["POST"])
 def engine_move():
-    """Get the engine's response move."""
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
-
+    """Get the engine's response move with stateless FEN fallback."""
+    data = request.get_json() or {}
     game_id = data.get("game_id")
+    client_fen = data.get("fen")
+
+    if not game_id:
+        game_id = str(uuid.uuid4())[:8]
+
     game = games.get(game_id)
     if not game:
-        return jsonify({"error": "Game not found"}), 404
-
-    board = game["board"]
+        board = chess.Board(client_fen) if client_fen else chess.Board()
+        game = {
+            "board": board,
+            "history": [],
+            "hallucinations": [],
+            "start_time": datetime.now().isoformat(),
+        }
+        games[game_id] = game
+    else:
+        board = game["board"]
+        if client_fen and board.fen() != client_fen:
+            try:
+                board = chess.Board(client_fen)
+                game["board"] = board
+            except Exception:
+                pass
 
     if board.is_game_over():
         state = get_board_state(board)
@@ -309,15 +384,23 @@ def game_state():
 @app.route("/api/undo", methods=["POST"])
 def undo_move():
     """Undo the last move (or last two for a full turn)."""
-    data = request.get_json()
-    game_id = data.get("game_id") if data else None
-    game = games.get(game_id)
+    data = request.get_json() or {}
+    game_id = data.get("game_id")
+    client_fen = data.get("fen")
+
+    game = games.get(game_id) if game_id else None
     if not game:
+        if client_fen:
+            board = chess.Board(client_fen)
+            if board.move_stack:
+                board.pop()
+            state = get_board_state(board)
+            state["game_id"] = game_id or str(uuid.uuid4())[:8]
+            return jsonify(state)
         return jsonify({"error": "Game not found"}), 404
 
     board = game["board"]
 
-    # Undo engine's move and player's move (one full turn)
     moves_undone = 0
     while board.move_stack and moves_undone < 2:
         board.pop()
@@ -333,58 +416,14 @@ def undo_move():
 @app.route("/api/research-stats", methods=["GET"])
 def research_stats():
     """Return research statistics as JSON."""
-    research_log, hallucinations = load_research_data()
-
-    total = len(research_log)
-    legal = sum(1 for r in research_log if r["is_legal"] == "1")
-
-    # Condition breakdown
-    conditions = {
-        "t02_unconstrained": {"total": 0, "legal": 0},
-        "t08_unconstrained": {"total": 0, "legal": 0},
-        "t08_constrained": {"total": 0, "legal": 0}
-    }
-
-    # Re-read raw data to classify by constrained_decoding flag
-    runs_dir = os.path.join(PROJECT_ROOT, "runs")
-    if os.path.isdir(runs_dir):
-        for entry in os.listdir(runs_dir):
-            run_path = os.path.join(runs_dir, entry)
-            if os.path.isdir(run_path):
-                raw_path = os.path.join(run_path, "raw_outputs.jsonl")
-                if os.path.isfile(raw_path):
-                    try:
-                        with open(raw_path, "r") as f:
-                            for line in f:
-                                try:
-                                    record = json.loads(line.strip())
-                                    temp = record.get("temperature", 0.0)
-                                    constrained = record.get("constrained_decoding", False)
-                                    is_legal = record.get("is_legal", 0)
-
-                                    if temp == 0.2 and not constrained:
-                                        key = "t02_unconstrained"
-                                    elif temp == 0.8 and not constrained:
-                                        key = "t08_unconstrained"
-                                    elif temp == 0.8 and constrained:
-                                        key = "t08_constrained"
-                                    else:
-                                        continue
-
-                                    conditions[key]["total"] += 1
-                                    if is_legal == 1:
-                                        conditions[key]["legal"] += 1
-                                except Exception:
-                                    continue
-                    except Exception:
-                        continue
+    research_log, hallucinations, conditions, stats = load_research_data()
 
     return jsonify({
-        "total_calls": total,
-        "legal_moves": legal,
-        "illegal_moves": total - legal,
-        "success_rate": round(legal / total * 100, 1) if total > 0 else 0,
-        "total_hallucinations": len(hallucinations),
+        "total_calls": stats["total_calls"],
+        "legal_moves": stats["legal_moves"],
+        "illegal_moves": stats["illegal_moves"],
+        "success_rate": stats["success_rate"],
+        "total_hallucinations": stats["total_hallucinations"],
         "conditions": conditions,
     })
 

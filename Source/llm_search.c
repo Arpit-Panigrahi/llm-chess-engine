@@ -71,43 +71,58 @@ static void BuildLegalMoveString(S_BOARD *pos, char *out, size_t out_size) {
 }
 
 void SearchPosition(S_BOARD *pos, S_SEARCHINFO *info) {
+    // 1. If LLM is disabled, use classical alpha-beta minimax directly
+    if (!EngineOptions->LLM_Enabled) {
+        SearchPosition_Classical(pos, info);
+        return;
+    }
+
     char fen[256] = {0};
-    char raw_response[2048] = {0};
-    char uci_move[10] = {0};
-    char legal_moves_str[2048] = {0};  // Holds the legal move array string
-    float temperature = 0.8; // Higher temp for creative, position-aware responses (Tournament #2)
+    char raw_response[4096] = {0};
+    char uci_move[16] = {0};
+    char legal_moves_str[8192] = {0};
+    float temperature = EngineOptions->LLM_Temperature;
     
     int is_legal = 0;
     int fallback_used = 1; // Default to triggering fallback
     long latency_ms = 0;
 
-    // 1. Clear VICE's search structures
+    // 2. Clear VICE's search structures
     ClearForSearch(pos, info);
 
-    // 2. Generate the FEN string for Ollama
+    // 3. Generate the FEN string for Ollama
     BoardToFen(pos, fen);
 
-    // 2b. Generate the legal move array for the LLM prompt constraint
-    BuildLegalMoveString(pos, legal_moves_str, sizeof(legal_moves_str));
-    // Debug output is now inside BuildLegalMoveString()
+    // 4. Generate the legal move array if constrained decoding is on
+    if (EngineOptions->LLM_Constrained) {
+        BuildLegalMoveString(pos, legal_moves_str, sizeof(legal_moves_str));
+    }
 
     // Start Timer
     struct timeval start, end;
     gettimeofday(&start, NULL);
 
-    // 3. Request move from Ollama via Fedora/Docker network
-    // Note: If 'localhost' fails, try 'host.docker.internal'
-    printf("info string LLM is thinking...\n");
-    if (GetMoveFromOllama(fen, temperature, legal_moves_str, raw_response, sizeof(raw_response))) {
+    // 5. Request move from Ollama
+    printf("info string LLM is thinking (model=%s, temp=%.2f, constr=%d)...\n", 
+           EngineOptions->LLM_Model, temperature, EngineOptions->LLM_Constrained);
+    
+    if (GetMoveFromOllama(fen, temperature, 
+                          EngineOptions->LLM_Constrained ? legal_moves_str : NULL,
+                          EngineOptions->LLM_Model, 
+                          EngineOptions->LLM_Url, 
+                          EngineOptions->LLM_Timeout, 
+                          EngineOptions->LLM_Constrained,
+                          raw_response, sizeof(raw_response))) {
         
-        // 4. Extract the UCI string (e.g., "e2e4")
-        ExtractUCI(raw_response, uci_move);
+        // 6. Extract the UCI / SAN move
+        ExtractUCIEnhanced(raw_response, uci_move, pos);
         
         if (strlen(uci_move) > 0) {
-            // 5. VALIDATION: Let VICE determine if the move is legal
+            // 7. VALIDATION: Check if move is legal
             int parsed_move = ParseMove(uci_move, pos);
             
-            if (parsed_move != NOMOVE) {
+            if (parsed_move != NOMOVE && MakeMove(pos, parsed_move)) {
+                TakeMove(pos); // Restore board state
                 // SUCCESS! The LLM generated a strictly legal move.
                 is_legal = 1;
                 fallback_used = 0;
@@ -116,8 +131,17 @@ void SearchPosition(S_BOARD *pos, S_SEARCHINFO *info) {
                 gettimeofday(&end, NULL);
                 latency_ms = ((end.tv_sec - start.tv_sec) * 1000) + ((end.tv_usec - start.tv_usec) / 1000);
 
-                // 6. Output the move strictly adhering to UCI protocol
-                printf("bestmove %s\n", PrMove(parsed_move));
+                // Output the move adhering to UCI / XBoard protocol
+                if (info->GAME_MODE == UCIMODE) {
+                    printf("bestmove %s\n", PrMove(parsed_move));
+                } else if (info->GAME_MODE == XBOARDMODE) {
+                    printf("move %s\n", PrMove(parsed_move));
+                    MakeMove(pos, parsed_move);
+                } else {
+                    printf("\n\n***!! LLM makes move %s !!***\n\n", PrMove(parsed_move));
+                    MakeMove(pos, parsed_move);
+                    PrintBoard(pos);
+                }
             }
         }
     }
@@ -129,10 +153,10 @@ void SearchPosition(S_BOARD *pos, S_SEARCHINFO *info) {
         
         printf("info string LLM Failed/Illegal. Falling back to Classical Minimax.\n");
         
-        // 7. THE FALLBACK: Trigger VICE's original logic
+        // Trigger VICE's original logic
         SearchPosition_Classical(pos, info);
     }
 
-    // 8. Log the exact telemetry for your research
+    // 8. Log the exact telemetry for research
     LogLLMAction(fen, temperature, latency_ms, raw_response, uci_move, is_legal, fallback_used);
 }

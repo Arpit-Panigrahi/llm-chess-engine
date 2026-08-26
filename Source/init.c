@@ -183,6 +183,60 @@ void InitSq120To64() {
 	}
 }
 
+#include <string.h>
+#include <strings.h>
+
+void InitEngineOptions() {
+	EngineOptions->UseBook = TRUE;
+	EngineOptions->LLM_Enabled = 1;
+
+	const char *env_enabled = getenv("LLM_ENABLED");
+	if (env_enabled && (strcmp(env_enabled, "0") == 0 || strcasecmp(env_enabled, "false") == 0 || strcasecmp(env_enabled, "off") == 0)) {
+		EngineOptions->LLM_Enabled = 0;
+	}
+
+	const char *env_model = getenv("LLM_MODEL");
+	if (env_model && strlen(env_model) > 0) {
+		snprintf(EngineOptions->LLM_Model, sizeof(EngineOptions->LLM_Model), "%s", env_model);
+	} else {
+		snprintf(EngineOptions->LLM_Model, sizeof(EngineOptions->LLM_Model), "llama3");
+	}
+
+	const char *env_url = getenv("OLLAMA_BASE_URL");
+	if (!env_url) env_url = getenv("OLLAMA_URL");
+	if (env_url && strlen(env_url) > 0) {
+		if (strstr(env_url, "/api/generate")) {
+			snprintf(EngineOptions->LLM_Url, sizeof(EngineOptions->LLM_Url), "%s", env_url);
+		} else {
+			snprintf(EngineOptions->LLM_Url, sizeof(EngineOptions->LLM_Url), "%s/api/generate", env_url);
+		}
+	} else {
+		snprintf(EngineOptions->LLM_Url, sizeof(EngineOptions->LLM_Url), "http://localhost:11434/api/generate");
+	}
+
+	const char *env_temp = getenv("LLM_TEMPERATURE");
+	if (env_temp) {
+		EngineOptions->LLM_Temperature = (float)atof(env_temp);
+	} else {
+		EngineOptions->LLM_Temperature = 0.8f;
+	}
+
+	const char *env_constr = getenv("LLM_CONSTRAINED");
+	if (env_constr && (strcmp(env_constr, "0") == 0 || strcasecmp(env_constr, "false") == 0 || strcasecmp(env_constr, "no") == 0)) {
+		EngineOptions->LLM_Constrained = 0;
+	} else {
+		EngineOptions->LLM_Constrained = 1;
+	}
+
+	const char *env_timeout = getenv("LLM_TIMEOUT");
+	if (env_timeout) {
+		EngineOptions->LLM_Timeout = atoi(env_timeout);
+		if (EngineOptions->LLM_Timeout <= 0) EngineOptions->LLM_Timeout = 30;
+	} else {
+		EngineOptions->LLM_Timeout = 30;
+	}
+}
+
 void AllInit() {
 	InitSq120To64();
 	InitBitMasks();
@@ -191,4 +245,5 @@ void AllInit() {
 	InitEvalMasks();
 	InitMvvLva();
 	InitPolyBook();
+	InitEngineOptions();
 }

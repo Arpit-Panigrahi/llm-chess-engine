@@ -110,6 +110,20 @@ void ParsePosition(char* lineIn, S_BOARD *pos) {
 	PrintBoard(pos);
 }
 
+static void PrintUciInfo() {
+    printf("id name %s\n",NAME);
+    printf("id author Bluefever (LLM additions by Arpit Panigrahi)\n");
+	printf("option name Hash type spin default 64 min 4 max %d\n",MAX_HASH);
+	printf("option name Book type check default %s\n", EngineOptions->UseBook ? "true" : "false");
+	printf("option name LLM_Enabled type check default %s\n", EngineOptions->LLM_Enabled ? "true" : "false");
+	printf("option name LLM_Model type string default %s\n", EngineOptions->LLM_Model);
+	printf("option name LLM_Url type string default %s\n", EngineOptions->LLM_Url);
+	printf("option name LLM_Temperature type string default %.2f\n", EngineOptions->LLM_Temperature);
+	printf("option name LLM_Constrained type check default %s\n", EngineOptions->LLM_Constrained ? "true" : "false");
+	printf("option name LLM_Timeout type spin default %d min 1 max 300\n", EngineOptions->LLM_Timeout);
+    printf("uciok\n");
+}
+
 void Uci_Loop(S_BOARD *pos, S_SEARCHINFO *info) {
 
 	info->GAME_MODE = UCIMODE;
@@ -118,11 +132,7 @@ void Uci_Loop(S_BOARD *pos, S_SEARCHINFO *info) {
     setbuf(stdout, NULL);
 
 	char line[INPUTBUFFER];
-    printf("id name %s\n",NAME);
-    printf("id author Bluefever\n");
-	printf("option name Hash type spin default 64 min 4 max %d\n",MAX_HASH);
-	printf("option name Book type check default true\n");
-    printf("uciok\n");
+	PrintUciInfo();
 	
 	int MB = 64;
 
@@ -149,9 +159,7 @@ void Uci_Loop(S_BOARD *pos, S_SEARCHINFO *info) {
             info->quit = TRUE;
             break;
         } else if (!strncmp(line, "uci", 3)) {
-            printf("id name %s\n",NAME);
-            printf("id author Bluefever\n");
-            printf("uciok\n");
+            PrintUciInfo();
         } else if (!strncmp(line, "debug", 4)) {
             DebugAnalysisTest(pos,info);
             break;
@@ -168,6 +176,51 @@ void Uci_Loop(S_BOARD *pos, S_SEARCHINFO *info) {
 				EngineOptions->UseBook = TRUE;
 			} else {
 				EngineOptions->UseBook = FALSE;
+			}
+		} else if (!strncmp(line, "setoption name LLM_Enabled value ", 33)) {
+			if (strstr(line, "false") || strstr(line, "0") || strstr(line, "off")) {
+				EngineOptions->LLM_Enabled = FALSE;
+				printf("info string LLM_Enabled set to false\n");
+			} else {
+				EngineOptions->LLM_Enabled = TRUE;
+				printf("info string LLM_Enabled set to true\n");
+			}
+		} else if (!strncmp(line, "setoption name LLM_Model value ", 31)) {
+			char val[64] = {0};
+			if (sscanf(line, "%*s %*s %*s %*s %63s", val) == 1) {
+				snprintf(EngineOptions->LLM_Model, sizeof(EngineOptions->LLM_Model), "%s", val);
+				printf("info string LLM_Model set to %s\n", EngineOptions->LLM_Model);
+			}
+		} else if (!strncmp(line, "setoption name LLM_Url value ", 29)) {
+			char val[256] = {0};
+			if (sscanf(line, "%*s %*s %*s %*s %255s", val) == 1) {
+				if (strstr(val, "/api/generate")) {
+					snprintf(EngineOptions->LLM_Url, sizeof(EngineOptions->LLM_Url), "%s", val);
+				} else {
+					snprintf(EngineOptions->LLM_Url, sizeof(EngineOptions->LLM_Url), "%s/api/generate", val);
+				}
+				printf("info string LLM_Url set to %s\n", EngineOptions->LLM_Url);
+			}
+		} else if (!strncmp(line, "setoption name LLM_Temperature value ", 37)) {
+			float temp = 0.8f;
+			if (sscanf(line, "%*s %*s %*s %*s %f", &temp) == 1) {
+				EngineOptions->LLM_Temperature = temp;
+				printf("info string LLM_Temperature set to %.2f\n", EngineOptions->LLM_Temperature);
+			}
+		} else if (!strncmp(line, "setoption name LLM_Constrained value ", 37)) {
+			if (strstr(line, "false") || strstr(line, "0") || strstr(line, "off")) {
+				EngineOptions->LLM_Constrained = FALSE;
+				printf("info string LLM_Constrained set to false\n");
+			} else {
+				EngineOptions->LLM_Constrained = TRUE;
+				printf("info string LLM_Constrained set to true\n");
+			}
+		} else if (!strncmp(line, "setoption name LLM_Timeout value ", 33)) {
+			int timeout = 30;
+			if (sscanf(line, "%*s %*s %*s %*s %d", &timeout) == 1) {
+				if (timeout < 1) timeout = 1;
+				EngineOptions->LLM_Timeout = timeout;
+				printf("info string LLM_Timeout set to %d s\n", EngineOptions->LLM_Timeout);
 			}
 		}
 		if(info->quit) break;

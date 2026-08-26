@@ -34,7 +34,7 @@ void InitPolyBook() {
 		fseek(pFile,0,SEEK_END);
 		long position = ftell(pFile);
 		
-		if(position < sizeof(S_POLY_BOOK_ENTRY)) {
+		if(position < (long)sizeof(S_POLY_BOOK_ENTRY)) {
 			printf("No Entries Found\n");
 			return;
 		}
@@ -181,7 +181,6 @@ int ConvertPolyMoveToInternalMove(unsigned short polyMove, S_BOARD *board) {
 }
 
 int GetBookMove(S_BOARD *board) {
-	int index = 0;
 	S_POLY_BOOK_ENTRY *entry;
 	unsigned short move;
 	const int MAXBOOKMOVES = 32;
