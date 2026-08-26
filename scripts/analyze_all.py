@@ -170,7 +170,6 @@ def compute_comparison(runs_by_tag):
     """Compute comparison metrics across tagged conditions."""
     rows = []
     for tag, runs in sorted(runs_by_tag.items()):
-        # Use the latest run for each tag
         run = runs[-1]
         m = run["metrics"]
         c = run["config"] or run["manifest"].get("config", {})
@@ -180,6 +179,8 @@ def compute_comparison(runs_by_tag):
             "run_id": run["run_id"],
             "temperature": c.get("temperature", "?"),
             "constrained": c.get("constrained_decoding", "?"),
+            "speculative": c.get("speculative", False),
+            "use_dmc": c.get("use_dmc", False),
             "seed": c.get("seed", "?"),
             "model": c.get("model", "?"),
             "total_games": m.get("total_games", 0),
@@ -187,6 +188,8 @@ def compute_comparison(runs_by_tag):
             "legal_moves": m.get("total_legal_moves", 0),
             "legal_rate": m.get("legal_move_rate", 0),
             "unique_moves": m.get("unique_moves", 0),
+            "acpl": m.get("average_centipawn_loss", 0.0),
+            "fast_path_hit_rate": m.get("fast_path_hit_rate"),
             "latency_mean_ms": m.get("latency_mean_ms", 0),
             "latency_median_ms": m.get("latency_median_ms", 0),
         })
@@ -207,13 +210,14 @@ def compute_pairwise_deltas(rows):
                 "legal_rate_b": b["legal_rate"],
                 "latency_delta_ms": round(b["latency_mean_ms"] - a["latency_mean_ms"], 1),
                 "unique_moves_delta": b["unique_moves"] - a["unique_moves"],
+                "acpl_delta": round(b["acpl"] - a["acpl"], 1) if (a["acpl"] and b["acpl"]) else None,
             }
             deltas.append(delta)
     return deltas
 
 
 def generate_plots(rows, out_dir):
-    """Generate comparison plots."""
+    """Generate comparison plots including ACPL and speculative latencies."""
     try:
         import matplotlib
         matplotlib.use('Agg')
@@ -228,7 +232,7 @@ def generate_plots(rows, out_dir):
     plot_files = []
 
     tags = [r["tag"] for r in rows]
-    colors = ['#2196F3', '#FF9800', '#4CAF50', '#9C27B0', '#f44336']
+    colors = ['#2196F3', '#FF9800', '#4CAF50', '#9C27B0', '#00BCD4']
 
     # ── Plot 1: Legal Move Rate ──
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -283,6 +287,24 @@ def generate_plots(rows, out_dir):
     plt.savefig(path, dpi=200, bbox_inches='tight')
     plt.close()
     plot_files.append(path)
+
+    # ── Plot 4: Average Centipawn Loss (ACPL) ──
+    has_acpl = any(r.get("acpl", 0) > 0 for r in rows)
+    if has_acpl:
+        fig, ax = plt.subplots(figsize=(10, 6))
+        acpls = [r.get("acpl", 0) for r in rows]
+        ax.bar(tags, acpls, color='#E91E63', edgecolor='black', alpha=0.85, width=0.5)
+        for i, val in enumerate(acpls):
+            if val > 0:
+                ax.text(i, val + 5, f'{val:.1f} cp', ha='center', va='bottom', fontsize=11, fontweight='bold')
+        ax.set_title("Average Centipawn Loss (ACPL) by Condition (Lower is Better)", fontsize=14, fontweight='bold')
+        ax.set_ylabel("ACPL (Centipawns)")
+        ax.grid(axis='y', linestyle='--', alpha=0.4)
+        plt.tight_layout()
+        path = os.path.join(plots_dir, "acpl_comparison.png")
+        plt.savefig(path, dpi=200, bbox_inches='tight')
+        plt.close()
+        plot_files.append(path)
 
     return plot_files
 
@@ -382,9 +404,9 @@ def generate_report(rows, deltas, plot_files, out_dir, all_errors):
 def generate_csv(rows, out_dir):
     """Generate metrics_comparison.csv."""
     csv_path = os.path.join(out_dir, "metrics_comparison.csv")
-    fieldnames = ["tag", "run_id", "temperature", "constrained", "seed", "model",
+    fieldnames = ["tag", "run_id", "temperature", "constrained", "speculative", "use_dmc", "seed", "model",
                   "total_games", "total_llm_calls", "legal_moves", "legal_rate",
-                  "unique_moves", "latency_mean_ms", "latency_median_ms"]
+                  "unique_moves", "acpl", "fast_path_hit_rate", "latency_mean_ms", "latency_median_ms"]
 
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

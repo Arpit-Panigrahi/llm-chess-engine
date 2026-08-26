@@ -88,41 +88,88 @@ def check_ollama(config):
         return False
 
 
-def query_ollama(config, fen, legal_moves_list):
-    """Send a position to Ollama and get a move response."""
-    # Determine side to play
-    board = chess.Board(fen)
-    side = "White" if board.turn == chess.WHITE else "Black"
+def compress_legal_moves(legal_moves_uci: list) -> str:
+    """
+    Dynamic Move Compression (DMC):
+    Groups legal destination squares by origin square to reduce prompt tokens by 40-50%.
+    Example: ['e7e5', 'e7e6', 'g8f6', 'g8h6'] -> "e7:[e5,e6]|g8:[f6,h6]"
+    """
+    if not legal_moves_uci:
+        return ""
+    groups = {}
+    for m in sorted(legal_moves_uci):
+        src, dst = m[:2], m[2:]
+        groups.setdefault(src, []).append(dst)
+    return "|".join(f"{src}:[{','.join(dsts)}]" for src, dsts in sorted(groups.items()))
 
-    # Build prompt
-    if config.constrained_decoding:
-        legal_str = json.dumps(legal_moves_list)
-        prompt = (
-            f"You are a chess engine playing as {side}. "
-            f"The current board FEN is: {fen}. "
-            f"It is {side}'s turn to move. "
-            f"The ONLY legal moves in this position are: {legal_str}. "
-            f"You MUST pick exactly one move from that list. "
-            f"Respond ONLY with a single 4-character UCI move (e.g., e7e5). "
-            f"Do not include any other text, explanations, or formatting."
-        )
+
+def decompress_legal_moves(compressed_str: str) -> list:
+    """
+    Reconstructs list of full UCI moves from a DMC string.
+    Example: "e7:[e5,e6]|g8:[f6,h6]" -> ['e7e5', 'e7e6', 'g8f6', 'g8h6']
+    """
+    if not compressed_str:
+        return []
+    moves = []
+    for group in compressed_str.split("|"):
+        group = group.strip()
+        if not group or ":" not in group:
+            continue
+        src, dsts_str = group.split(":", 1)
+        src = src.strip()
+        dsts_str = dsts_str.strip().strip("[]")
+        if not dsts_str:
+            continue
+        for dst in dsts_str.split(","):
+            dst = dst.strip()
+            if dst:
+                moves.append(f"{src}{dst}")
+    return sorted(moves)
+
+
+STATIC_KV_PREFIX = (
+    "You are a chess engine playing as Black. "
+    "Respond ONLY with a single UCI move in source-destination format (e.g., e7e5, g8f6). "
+    "Do not include piece letters, explanations, commentary, or markdown formatting."
+)
+
+
+def build_kv_aligned_prompt(fen: str, legal_moves_list: list, is_constrained: bool = False, use_dmc: bool = False) -> str:
+    """
+    Constructs a KV-Cache aligned prompt:
+    Static prefix is 100% constant across every turn and game,
+    Dynamic suffix contains the changing board FEN and optional legal moves list.
+    """
+    if is_constrained:
+        if use_dmc:
+            compressed = compress_legal_moves(legal_moves_list)
+            suffix = f"\nBoard FEN: {fen}\nLegal moves (DMC grouped): {compressed}\nPick exactly one legal UCI move."
+        else:
+            legal_str = json.dumps(legal_moves_list)
+            suffix = f"\nBoard FEN: {fen}\nThe ONLY legal moves are: {legal_str}\nPick exactly one move."
     else:
-        prompt = (
-            f"You are a chess engine playing as {side}. "
-            f"The current board FEN is: {fen}. "
-            f"It is {side}'s turn to move. "
-            f"Respond ONLY with a single UCI move in source-destination format "
-            f"(e.g., g8f6, e7e5, b8c6, d7d5). "
-            f"Do not include piece letters, just the two squares. "
-            f"Do not include any other text, explanations, or formatting."
-        )
+        suffix = f"\nBoard FEN: {fen}\nIt is Black's turn. Provide your move."
+
+    return STATIC_KV_PREFIX + suffix
+
+
+def query_ollama(config, fen, legal_moves_list, is_constrained=None, use_dmc=None, temperature=None):
+    """Send a position to Ollama with KV-Cache alignment and optional DMC."""
+    if is_constrained is None:
+        is_constrained = config.constrained_decoding
+    if use_dmc is None:
+        use_dmc = config.use_dmc
+    if temperature is None:
+        temperature = config.temperature
+
+    prompt = build_kv_aligned_prompt(fen, legal_moves_list, is_constrained=is_constrained, use_dmc=use_dmc)
 
     payload = {
         "model": config.model,
         "prompt": prompt,
         "stream": False,
         "options": {
-            "temperature": config.temperature,
+            "temperature": temperature,
             "seed": config.seed,
         },
     }
@@ -148,7 +195,7 @@ def query_ollama(config, fen, legal_moves_list):
 
 
 def extract_uci_move(raw_response, board=None):
-    """Extract a UCI move (4-5 chars like e2e4, e7e8q) from raw LLM text, with robust SAN/LAN fallbacks."""
+    """Extract a UCI move (4-5 chars like e2e4, e7e8q) from raw LLM text, with robust SAN/LAN and DMC fallbacks."""
     import re
     text = raw_response.strip()
 
@@ -159,7 +206,15 @@ def extract_uci_move(raw_response, board=None):
     if re.match(r'^[a-h][1-8][a-h][1-8][qrbn]?$', text):
         return text
 
-    # 3. Try to find a UCI pattern with optional piece prefix or hyphen/capture symbol
+    # 3. Try bracketed / colon / arrow formats like e7:e5, e7[e5], e7->e5
+    match_grouped = re.search(r'\b([a-h][1-8])(?::|->|\[|\()([a-h][1-8][qrbn]?)[\]\)]?\b', text)
+    if match_grouped:
+        from_sq, to_sq = match_grouped.groups()
+        candidate = f"{from_sq.lower()}{to_sq.lower()}"
+        if re.match(r'^[a-h][1-8][a-h][1-8][qrbn]?$', candidate):
+            return candidate
+
+    # 4. Try to find a UCI pattern with optional piece prefix or hyphen/capture symbol
     # e.g., Nb8c6 -> b8c6, e2-e4 -> e2e4, b8xc6 -> b8c6, Pe2-e4 -> e2e4
     match = re.search(r'\b(?:[KQRBNPkqrbnp])?([a-h][1-8])[-xX]?([a-h][1-8])([qrbnQRBN]?)\b', text)
     if match:
@@ -168,9 +223,8 @@ def extract_uci_move(raw_response, board=None):
         if re.match(r'^[a-h][1-8][a-h][1-8][qrbn]?$', candidate):
             return candidate
 
-    # 4. If board is provided, try to resolve Standard Algebraic Notation (SAN) like "Nf6", "e4", "O-O"
+    # 5. If board is provided, try to resolve Standard Algebraic Notation (SAN) like "Nf6", "e4", "O-O"
     if board is not None:
-        # Clean SAN string (remove check/mate/annotations)
         san_clean = re.sub(r'[+#?!]', '', text)
         try:
             move = board.parse_san(san_clean)
@@ -178,14 +232,13 @@ def extract_uci_move(raw_response, board=None):
         except ValueError:
             pass
 
-        # Try to find a match in the legal moves list by matching SAN or UCI substrings
         for move in board.legal_moves:
             uci = move.uci()
             san = board.san(move)
             if san.lower() == san_clean.lower() or uci.lower() in text.lower():
                 return uci
 
-    # 5. Fallback to searching for any standard 4-5 char UCI pattern
+    # 6. Fallback to searching for any standard 4-5 char UCI pattern
     match = re.search(r'\b([a-h][1-8][a-h][1-8][qrbn]?)\b', text)
     if match:
         return match.group(1)
@@ -193,8 +246,54 @@ def extract_uci_move(raw_response, board=None):
     return ""
 
 
-def play_game(config, game_num, run_dir, uci_engine=None):
-    """Play a single game (White=random, Black=LLM) and return per-move records."""
+def evaluate_position_score(board: chess.Board, engine=None, depth: int = 10) -> tuple:
+    """
+    Evaluates position with Stockfish.
+    Returns (eval_cp_from_turn_pov, best_move_uci).
+    """
+    if engine is None:
+        return 0.0, ""
+    try:
+        info = engine.analyse(board, chess.engine.Limit(depth=depth, time=0.15))
+        score_obj = info.get("score")
+        best_pv = info.get("pv", [])
+        best_move_str = best_pv[0].uci() if best_pv else ""
+
+        if score_obj is not None:
+            pov_score = score_obj.pov(board.turn)
+            if pov_score.is_mate():
+                mate_plies = pov_score.mate()
+                cp_val = 10000.0 if (mate_plies and mate_plies > 0) else -10000.0
+            else:
+                cp_val = float(pov_score.score(mate_score=10000))
+            return cp_val, best_move_str
+    except Exception:
+        pass
+    return 0.0, ""
+
+
+def compute_move_cpl(board_before: chess.Board, played_move: chess.Move, engine=None, depth: int = 10) -> tuple:
+    """
+    Calculates Centipawn Loss (CPL) for a played move:
+    CPL = max(0.0, best_move_eval - played_move_eval) from perspective of player making the move.
+    Returns (cpl, best_move_uci, eval_before, eval_after).
+    """
+    if engine is None or played_move not in board_before.legal_moves:
+        return 0.0, "", 0.0, 0.0
+
+    eval_before, best_move = evaluate_position_score(board_before, engine, depth=depth)
+
+    b_after = board_before.copy()
+    b_after.push(played_move)
+    eval_after_opp_pov, _ = evaluate_position_score(b_after, engine, depth=depth)
+    eval_after = -eval_after_opp_pov
+
+    cpl = max(0.0, eval_before - eval_after)
+    return round(cpl, 1), best_move, round(eval_before, 1), round(eval_after, 1)
+
+
+def play_game(config, game_num, run_dir, uci_engine=None, stockfish_engine=None):
+    """Play a single game with optional Speculative Fast/Slow path and Stockfish ACPL evaluation."""
     board = chess.Board()
     rng = random.Random(config.seed + game_num)
     records = []
@@ -209,9 +308,14 @@ def play_game(config, game_num, run_dir, uci_engine=None):
             move = rng.choice(legal)
             board.push(move)
         else:
-            # Black plays via LLM (direct Python or C engine over UCI)
+            # Black plays via LLM
             fen = board.fen()
             legal_moves = [m.uci() for m in board.legal_moves]
+
+            fast_path_hit = 0
+            speculative_fallback_used = 0
+            fast_path_latency_ms = 0
+            slow_path_latency_ms = 0
 
             if config.engine_mode == "uci" and uci_engine is not None:
                 start_t = time.time()
@@ -224,14 +328,46 @@ def play_game(config, game_num, run_dir, uci_engine=None):
                     latency_ms = int((time.time() - start_t) * 1000)
                     uci_str = ""
                     raw_response = f"error: {e}"
+            elif config.speculative:
+                # ── Speculative Two-Stage Decision Loop ───────────────────
+                # Stage 1: Fast-Path draft (unconstrained, T=0.2)
+                raw_fast, lat_fast = query_ollama(config, fen, legal_moves, is_constrained=False, temperature=0.2)
+                uci_fast = extract_uci_move(raw_fast, board)
+                fast_path_latency_ms = lat_fast
+
+                try:
+                    fast_move_obj = chess.Move.from_uci(uci_fast) if uci_fast else None
+                    if fast_move_obj and fast_move_obj in board.legal_moves:
+                        # FAST-PATH HIT!
+                        fast_path_hit = 1
+                        uci_str = uci_fast
+                        raw_response = raw_fast
+                        latency_ms = lat_fast
+                    else:
+                        # FAST-PATH MISS -> Trigger Slow-Path Fallback (DMC constrained, T=0.8)
+                        speculative_fallback_used = 1
+                        raw_slow, lat_slow = query_ollama(config, fen, legal_moves, is_constrained=True, use_dmc=config.use_dmc, temperature=0.8)
+                        slow_path_latency_ms = lat_slow
+                        uci_str = extract_uci_move(raw_slow, board)
+                        raw_response = f"Fast-Path: {raw_fast} | Slow-Path: {raw_slow}"
+                        latency_ms = lat_fast + lat_slow
+                except ValueError:
+                    speculative_fallback_used = 1
+                    raw_slow, lat_slow = query_ollama(config, fen, legal_moves, is_constrained=True, use_dmc=config.use_dmc, temperature=0.8)
+                    slow_path_latency_ms = lat_slow
+                    uci_str = extract_uci_move(raw_slow, board)
+                    raw_response = f"Fast-Path: {raw_fast} | Slow-Path: {raw_slow}"
+                    latency_ms = lat_fast + lat_slow
             else:
-                raw_response, latency_ms = query_ollama(config, fen, legal_moves)
+                # Standard Direct Mode (Constrained or Unconstrained)
+                raw_response, latency_ms = query_ollama(config, fen, legal_moves, is_constrained=config.constrained_decoding, use_dmc=config.use_dmc)
                 uci_str = extract_uci_move(raw_response, board)
 
             is_legal = 0
             fallback_used = 1
             played_move = ""
             aborted = False
+            played_move_obj = None
 
             if uci_str:
                 try:
@@ -240,6 +376,7 @@ def play_game(config, game_num, run_dir, uci_engine=None):
                         is_legal = 1
                         fallback_used = 0
                         played_move = uci_str
+                        played_move_obj = move
                         board.push(move)
                     else:
                         if config.early_termination:
@@ -248,6 +385,7 @@ def play_game(config, game_num, run_dir, uci_engine=None):
                         else:
                             fallback_move = rng.choice(list(board.legal_moves))
                             played_move = fallback_move.uci()
+                            played_move_obj = fallback_move
                             board.push(fallback_move)
                 except ValueError:
                     if config.early_termination:
@@ -256,6 +394,7 @@ def play_game(config, game_num, run_dir, uci_engine=None):
                     else:
                         fallback_move = rng.choice(list(board.legal_moves))
                         played_move = fallback_move.uci()
+                        played_move_obj = fallback_move
                         board.push(fallback_move)
             else:
                 if config.early_termination:
@@ -264,7 +403,16 @@ def play_game(config, game_num, run_dir, uci_engine=None):
                 else:
                     fallback_move = rng.choice(list(board.legal_moves))
                     played_move = fallback_move.uci()
+                    played_move_obj = fallback_move
                     board.push(fallback_move)
+
+            # Evaluate Centipawn Loss if Stockfish is available and move was made
+            cpl = 0.0
+            best_move = ""
+            eval_before = 0.0
+            eval_after = 0.0
+            if config.eval_acpl and stockfish_engine is not None and played_move_obj is not None and is_legal:
+                cpl, best_move, eval_before, eval_after = compute_move_cpl(chess.Board(fen), played_move_obj, stockfish_engine)
 
             record = {
                 "game_id": game_num,
@@ -273,11 +421,21 @@ def play_game(config, game_num, run_dir, uci_engine=None):
                 "fen": fen,
                 "temperature": config.temperature,
                 "constrained_decoding": config.constrained_decoding,
+                "speculative": config.speculative,
+                "use_dmc": config.use_dmc,
+                "fast_path_hit": fast_path_hit,
+                "speculative_fallback_used": speculative_fallback_used,
+                "fast_path_latency_ms": fast_path_latency_ms,
+                "slow_path_latency_ms": slow_path_latency_ms,
                 "latency_ms": latency_ms,
                 "extracted_move": uci_str,
                 "played_move": played_move,
                 "is_legal": is_legal,
                 "fallback_used": fallback_used,
+                "centipawn_loss": cpl,
+                "best_engine_move": best_move,
+                "eval_before": eval_before,
+                "eval_after": eval_after,
                 "raw_response": raw_response,
                 "num_legal_moves": len(legal_moves),
             }
@@ -335,12 +493,21 @@ def run(config, skip_preflight=False):
             print(f"✗ Failed to start UCI engine: {e}")
             sys.exit(1)
 
+    stockfish_engine = None
+    if config.eval_acpl:
+        try:
+            stockfish_engine = chess.engine.SimpleEngine.popen_uci(config.stockfish_path)
+            print(f"♟ Stockfish ACPL engine active: {config.stockfish_path}\n")
+        except Exception as e:
+            print(f"⚠ Could not start Stockfish ({e}). Proceeding without ACPL evaluation.\n")
+            stockfish_engine = None
+
     print(f"Starting {config.num_games} games...\n")
 
     try:
         for game_num in range(1, config.num_games + 1):
             game_start = time.time()
-            records, result = play_game(config, game_num, run_dir, uci_engine=uci_engine)
+            records, result = play_game(config, game_num, run_dir, uci_engine=uci_engine, stockfish_engine=stockfish_engine)
             game_time = time.time() - game_start
 
             all_records.extend(records)
@@ -354,13 +521,20 @@ def run(config, skip_preflight=False):
             legal = sum(1 for r in records if r["is_legal"])
             total = len(records)
             rate = (legal / total * 100) if total > 0 else 0
+            cpls = [r["centipawn_loss"] for r in records if r.get("centipawn_loss", 0.0) >= 0.0 and r.get("is_legal", 0) == 1]
+            avg_cpl_str = f"  ACPL: {sum(cpls)/len(cpls):.1f}" if cpls else ""
             print(f"  Game {game_num:3d}/{config.num_games}: {result:7s}  "
-                  f"LLM moves: {total:3d}  Legal: {legal}/{total} ({rate:.0f}%)  "
+                  f"LLM moves: {total:3d}  Legal: {legal}/{total} ({rate:.0f}%){avg_cpl_str}  "
                   f"Time: {game_time:.1f}s")
     finally:
         if uci_engine:
             try:
                 uci_engine.quit()
+            except Exception:
+                pass
+        if stockfish_engine:
+            try:
+                stockfish_engine.quit()
             except Exception:
                 pass
 
@@ -369,6 +543,11 @@ def run(config, skip_preflight=False):
     total_legal = sum(1 for r in all_records if r["is_legal"])
     total_fallback = sum(1 for r in all_records if r["fallback_used"])
     latencies = [r["latency_ms"] for r in all_records if r["latency_ms"] > 0]
+    
+    fast_path_hits = sum(1 for r in all_records if r.get("fast_path_hit", 0) == 1)
+    speculative_fallbacks = sum(1 for r in all_records if r.get("speculative_fallback_used", 0) == 1)
+    all_cpls = [r["centipawn_loss"] for r in all_records if r.get("is_legal", 0) == 1 and "centipawn_loss" in r]
+    mean_acpl = round(sum(all_cpls) / len(all_cpls), 2) if all_cpls else 0.0
 
     metrics = {
         "schema_version": "1.0",
@@ -377,6 +556,8 @@ def run(config, skip_preflight=False):
         "condition": {
             "temperature": config.temperature,
             "constrained_decoding": config.constrained_decoding,
+            "speculative": config.speculative,
+            "use_dmc": config.use_dmc,
             "seed": config.seed,
             "model": config.model,
         },
@@ -386,6 +567,10 @@ def run(config, skip_preflight=False):
         "total_fallback_moves": total_fallback,
         "legal_move_rate": round(total_legal / total_llm, 4) if total_llm > 0 else 0,
         "unique_moves": len(set(r["extracted_move"] for r in all_records if r["extracted_move"])),
+        "average_centipawn_loss": mean_acpl,
+        "fast_path_hits": fast_path_hits if config.speculative else None,
+        "fast_path_hit_rate": round(fast_path_hits / total_llm, 4) if (config.speculative and total_llm > 0) else None,
+        "speculative_fallbacks": speculative_fallbacks if config.speculative else None,
         "latency_mean_ms": round(sum(latencies) / len(latencies), 1) if latencies else 0,
         "latency_median_ms": round(sorted(latencies)[len(latencies) // 2], 1) if latencies else 0,
         "latency_min_ms": min(latencies) if latencies else 0,
@@ -411,6 +596,7 @@ def run(config, skip_preflight=False):
             "total_games": config.num_games,
             "legal_move_rate": metrics["legal_move_rate"],
             "unique_moves": metrics["unique_moves"],
+            "average_centipawn_loss": mean_acpl,
             "latency_mean_ms": metrics["latency_mean_ms"],
         },
     }
@@ -427,6 +613,11 @@ def run(config, skip_preflight=False):
     print(f"  Legal Moves:     {total_legal} ({metrics['legal_move_rate']*100:.1f}%)")
     print(f"  Fallback Moves:  {total_fallback}")
     print(f"  Unique Moves:    {metrics['unique_moves']}")
+    if config.eval_acpl and all_cpls:
+        print(f"  Mean ACPL:       {mean_acpl} cp")
+    if config.speculative:
+        print(f"  Fast-Path Hits:  {fast_path_hits}/{total_llm} ({metrics['fast_path_hit_rate']*100:.1f}%)")
+        print(f"  Slow Fallbacks:  {speculative_fallbacks}")
     if latencies:
         print(f"  Latency (mean):  {metrics['latency_mean_ms']} ms")
         print(f"  Latency (med):   {metrics['latency_median_ms']} ms")

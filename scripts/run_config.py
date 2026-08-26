@@ -31,6 +31,10 @@ class RunConfig:
     early_termination: bool = False
     engine_mode: str = "python"
     engine_path: str = "Source/vice"
+    speculative: bool = False
+    use_dmc: bool = False
+    eval_acpl: bool = True
+    stockfish_path: str = "stockfish"
 
     # ── Validation ──────────────────────────────────────────
 
@@ -168,10 +172,20 @@ Environment variables (override defaults, CLI overrides env):
                             help="Time limit per move in seconds (default: 15.0)")
         parser.add_argument("--max-turns", type=int, default=200,
                             help="Maximum half-moves (ply) to play per game (default: 200)")
+        parser.add_argument("--early-termination", action="store_true", default=False,
+                            help="Abort game immediately on first hallucination (GUI style)")
         parser.add_argument("--engine-mode", type=str, choices=["python", "uci"], default="python",
                             help="Execution mode: direct Python HTTP calls or native C engine over UCI (default: python)")
         parser.add_argument("--engine-path", type=str, default="Source/vice",
                             help="Path to compiled C VICE binary (default: Source/vice)")
+        parser.add_argument("--speculative", action="store_true", default=False,
+                            help="Enable two-stage speculative decision loop (Fast-path draft -> Slow-path fallback)")
+        parser.add_argument("--use-dmc", action="store_true", default=False,
+                            help="Enable Dynamic Move Compression (group moves by origin square)")
+        parser.add_argument("--no-acpl", dest="eval_acpl", action="store_false", default=True,
+                            help="Disable Stockfish Centipawn Loss evaluation per move")
+        parser.add_argument("--stockfish-path", type=str, default="stockfish",
+                            help="Path to Stockfish engine binary (default: stockfish)")
         parser.add_argument("--skip-preflight", action="store_true", default=False,
                             help="Skip Ollama connectivity check")
 
@@ -190,6 +204,10 @@ Environment variables (override defaults, CLI overrides env):
             early_termination=parsed.early_termination,
             engine_mode=parsed.engine_mode,
             engine_path=parsed.engine_path,
+            speculative=parsed.speculative,
+            use_dmc=parsed.use_dmc,
+            eval_acpl=parsed.eval_acpl,
+            stockfish_path=parsed.stockfish_path,
         )
         config.validate()
         return config, parsed.skip_preflight
@@ -206,6 +224,9 @@ Environment variables (override defaults, CLI overrides env):
         print(f"  Model:               {self.model}")
         print(f"  Temperature:         {self.temperature}")
         print(f"  Constrained Decoding:{' ON' if self.constrained_decoding else ' OFF'}")
+        print(f"  Speculative Mode:    {' ON' if self.speculative else ' OFF'}")
+        print(f"  Dynamic Move Compr.: {' ON' if self.use_dmc else ' OFF'}")
+        print(f"  Centipawn Loss Eval: {' ON' if self.eval_acpl else ' OFF'}")
         print(f"  Seed:                {self.seed}")
         print(f"  Ollama URL:          {self.ollama_base_url}")
         print(f"  Num Games:           {self.num_games}")

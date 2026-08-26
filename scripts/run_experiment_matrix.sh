@@ -66,7 +66,7 @@ echo "  Model:     $MODEL"
 echo "  Seed:      $SEED"
 echo "  Games:     $NUM_GAMES per condition"
 echo "  Ollama:    $OLLAMA_URL"
-echo "  Conditions: 3 (t02_unconstrained, t08_unconstrained, t08_constrained)"
+echo "  Conditions: 4 (t02_unconstrained, t08_unconstrained, t08_constrained, speculative_dmc)"
 echo "============================================================"
 
 # ── Preflight (once) ─────────────────────────────────────────
@@ -86,7 +86,7 @@ python3 "$SCRIPT_DIR/check_ollama_env.py" --url "$OLLAMA_URL" --model "$MODEL" |
 # ── Condition 1: temp=0.2, unconstrained ─────────────────────
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  CONDITION 1/3: t02_unconstrained (Temp=0.2, No Constraint)"
+echo "  CONDITION 1/4: t02_unconstrained (Temp=0.2, No Constraint)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 python3 "$SCRIPT_DIR/run_game.py" \
     --temperature 0.2 \
@@ -102,7 +102,7 @@ python3 "$SCRIPT_DIR/run_game.py" \
 # ── Condition 2: temp=0.8, unconstrained ─────────────────────
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  CONDITION 2/3: t08_unconstrained (Temp=0.8, No Constraint)"
+echo "  CONDITION 2/4: t08_unconstrained (Temp=0.8, No Constraint)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 python3 "$SCRIPT_DIR/run_game.py" \
     --temperature 0.8 \
@@ -118,7 +118,7 @@ python3 "$SCRIPT_DIR/run_game.py" \
 # ── Condition 3: temp=0.8, constrained ───────────────────────
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  CONDITION 3/3: t08_constrained (Temp=0.8, Constrained)"
+echo "  CONDITION 3/4: t08_constrained (Temp=0.8, Constrained)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 python3 "$SCRIPT_DIR/run_game.py" \
     --temperature 0.8 \
@@ -131,6 +131,22 @@ python3 "$SCRIPT_DIR/run_game.py" \
     --tag t08_constrained \
     $EXTRA_ARGS
 
+# ── Condition 4: Speculative DMC Pipeline ────────────────────
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  CONDITION 4/4: speculative_dmc (KV-Aligned + Speculative DMC)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+python3 "$SCRIPT_DIR/run_game.py" \
+    --speculative \
+    --use-dmc \
+    --seed "$SEED" \
+    --model "$MODEL" \
+    --ollama-url "$OLLAMA_URL" \
+    --num-games "$NUM_GAMES" \
+    --max-turns "$MAX_TURNS" \
+    --tag speculative_dmc \
+    $EXTRA_ARGS
+
 # ── Generate Report ──────────────────────────────────────────
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -139,7 +155,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 python3 "$SCRIPT_DIR/analyze_all.py" \
     --run-root "$PROJECT_ROOT/runs" \
     --out "$PROJECT_ROOT/reports/experiment_matrix" \
-    --tags t02_unconstrained t08_unconstrained t08_constrained
+    --tags t02_unconstrained t08_unconstrained t08_constrained speculative_dmc
 
 echo ""
 echo "============================================================"
