@@ -23,6 +23,7 @@ import traceback
 from datetime import datetime, timezone
 
 import chess
+import chess.engine
 import requests
 
 # Add scripts/ to path for run_config import
@@ -61,10 +62,12 @@ def check_ollama(config):
         resp = requests.get(url, timeout=5)
         resp.raise_for_status()
         models = resp.json().get("models", [])
-        model_names = [m.get("name", "").split(":")[0] for m in models]
-        if config.model not in model_names and f"{config.model}:latest" not in [m.get("name", "") for m in models]:
+        full_names = [m.get("name", "") for m in models]
+        base_names = [m.get("name", "").split(":")[0] for m in models]
+        target_base = config.model.split(":")[0]
+        if config.model not in full_names and config.model not in base_names and target_base not in base_names:
             print(f"\n⚠  WARNING: Model '{config.model}' not found in Ollama.")
-            print(f"   Available models: {', '.join(m.get('name', '') for m in models) or '(none)'}")
+            print(f"   Available models: {', '.join(full_names) or '(none)'}")
             print(f"   Fix: ollama pull {config.model}")
             return False
         return True
@@ -154,7 +157,13 @@ def build_kv_aligned_prompt(fen: str, legal_moves_list: list, is_constrained: bo
     if is_constrained:
         if use_dmc:
             compressed = compress_legal_moves(legal_moves_list)
-            suffix = f"\nBoard FEN: {fen}\nLegal moves (DMC grouped): {compressed}\nPick exactly one legal UCI move."
+            suffix = (
+                f"\nBoard FEN: {fen}\n"
+                f"Legal moves grouped by origin square (format 'from:[to1,to2]'):\n"
+                f"{compressed}\n"
+                f"Pick an origin square and one of its destination squares to form your 4-character UCI move (e.g., e7:[e5,e6] -> e7e5, b8:[a6,c6] -> b8c6).\n"
+                f"Respond ONLY with that UCI move."
+            )
         else:
             legal_str = json.dumps(legal_moves_list)
             suffix = f"\nBoard FEN: {fen}\nThe ONLY legal moves are: {legal_str}\nPick exactly one move."

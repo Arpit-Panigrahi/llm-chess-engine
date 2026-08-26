@@ -104,7 +104,7 @@ class TestSpeculativeDMC(unittest.TestCase):
         fen = self.board_start.fen()
         prompt = build_kv_aligned_prompt(fen, self.legal_start_uci, is_constrained=True, use_dmc=True)
         self.assertIn(f"Board FEN: {fen}", prompt)
-        self.assertIn("Legal moves (DMC grouped):", prompt)
+        self.assertIn("Legal moves grouped by origin square", prompt)
         self.assertIn("e2:[e3,e4]", prompt)
 
     # ── Test 11: UCI Move Extraction - Standard Formats ──────────────
