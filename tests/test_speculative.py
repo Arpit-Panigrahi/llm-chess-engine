@@ -27,16 +27,14 @@ class TestSpeculativeDMC(unittest.TestCase):
         self.board_start = chess.Board()
         self.legal_start_uci = [m.uci() for m in self.board_start.legal_moves]
 
-    # ── Test 1: DMC Compression on Starting Position ─────────────────
+    # ── Test 1: Start Position Legal Moves Compression ──────────────
     def test_dmc_startpos(self):
         compressed = compress_legal_moves(self.legal_start_uci)
-        self.assertIn("a2:[a3,a4]", compressed)
-        self.assertIn("b1:[a3,c3]", compressed)
-        self.assertIn("e2:[e3,e4]", compressed)
-        self.assertIn("g1:[f3,h3]", compressed)
-        self.assertEqual(len(compressed.split("|")), 10)  # 8 pawns + 2 knights
+        self.assertIn("e2e4", compressed)
+        self.assertIn("g1f3", compressed)
+        self.assertEqual(len(compressed.split()), 20)
 
-    # ── Test 2: DMC Decompression Round-Trip Equality ───────────────
+    # ── Test 2: DMC Decompression Roundtrip Equality ─────────────────
     def test_dmc_decompression_equality(self):
         compressed = compress_legal_moves(self.legal_start_uci)
         decompressed = decompress_legal_moves(compressed)
@@ -65,7 +63,7 @@ class TestSpeculativeDMC(unittest.TestCase):
     def test_dmc_promotions(self):
         promo_moves = ["e7e8q", "e7e8r", "e7e8b", "e7e8n", "e7d8q"]
         compressed = compress_legal_moves(promo_moves)
-        self.assertEqual(compressed, "e7:[d8q,e8b,e8n,e8q,e8r]")
+        self.assertEqual(compressed, "e7d8q e7e8b e7e8n e7e8q e7e8r")
         decompressed = decompress_legal_moves(compressed)
         self.assertEqual(sorted(promo_moves), sorted(decompressed))
 
@@ -79,8 +77,8 @@ class TestSpeculativeDMC(unittest.TestCase):
     def test_dmc_empty_and_single_move(self):
         self.assertEqual(compress_legal_moves([]), "")
         self.assertEqual(decompress_legal_moves(""), [])
-        self.assertEqual(compress_legal_moves(["e2e4"]), "e2:[e4]")
-        self.assertEqual(decompress_legal_moves("e2:[e4]"), ["e2e4"])
+        self.assertEqual(compress_legal_moves(["e2e4"]), "e2e4")
+        self.assertEqual(decompress_legal_moves("e2e4"), ["e2e4"])
 
     # ── Test 8: KV-Cache Static Prefix Invariance ───────────────────
     def test_kv_aligned_static_prefix(self):
@@ -104,8 +102,8 @@ class TestSpeculativeDMC(unittest.TestCase):
         fen = self.board_start.fen()
         prompt = build_kv_aligned_prompt(fen, self.legal_start_uci, is_constrained=True, use_dmc=True)
         self.assertIn(f"Board FEN: {fen}", prompt)
-        self.assertIn("Legal moves grouped by origin square", prompt)
-        self.assertIn("e2:[e3,e4]", prompt)
+        self.assertIn("Legal moves: a2a3", prompt)
+        self.assertIn("e2e4", prompt)
 
     # ── Test 11: UCI Move Extraction - Standard Formats ──────────────
     def test_extract_uci_standard(self):

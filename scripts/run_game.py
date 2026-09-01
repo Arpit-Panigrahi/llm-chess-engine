@@ -94,11 +94,9 @@ def check_ollama(config):
 
 def compress_legal_moves(board_or_moves) -> str:
     """
-    Dynamic Move Compression (DMC):
-    Groups legal destination squares by origin square to reduce prompt tokens by 40-50%.
-    Accepts either a chess.Board object or a list of UCI string moves.
-    Example: ['e7e5', 'e7e6', 'g8f6', 'g8h6'] -> "e7:[e5,e6]|g8:[f6,h6]"
-    Execution time is optimized to execute in <1 ms.
+    Compact Atomic Move Formatting:
+    Formats legal moves as space-delimited atomic 4-character UCI strings (e.g. 'e7e5 e7e6 g8f6').
+    Avoids JSON formatting overhead and eliminates multi-step compositional hallucination.
     """
     if isinstance(board_or_moves, chess.Board):
         moves = [m.uci() for m in board_or_moves.legal_moves]
@@ -110,36 +108,16 @@ def compress_legal_moves(board_or_moves) -> str:
     if not moves:
         return ""
 
-    groups = {}
-    for m in sorted(moves):
-        src, dst = m[:2], m[2:]
-        groups.setdefault(src, []).append(dst)
-
-    return "|".join(f"{src}:[{','.join(dsts)}]" for src, dsts in sorted(groups.items()))
+    return " ".join(sorted(moves))
 
 
 def decompress_legal_moves(compressed_str: str) -> list:
     """
-    Reconstructs list of full UCI moves from a DMC string.
-    Example: "e7:[e5,e6]|g8:[f6,h6]" -> ['e7e5', 'e7e6', 'g8f6', 'g8h6']
+    Reconstructs list of full UCI moves from a space-delimited string.
     """
     if not compressed_str:
         return []
-    moves = []
-    for group in compressed_str.split("|"):
-        group = group.strip()
-        if not group or ":" not in group:
-            continue
-        src, dsts_str = group.split(":", 1)
-        src = src.strip()
-        dsts_str = dsts_str.strip().strip("[]")
-        if not dsts_str:
-            continue
-        for dst in dsts_str.split(","):
-            dst = dst.strip()
-            if dst:
-                moves.append(f"{src}{dst}")
-    return sorted(moves)
+    return [m.strip() for m in compressed_str.split() if m.strip()]
 
 
 STATIC_KV_PREFIX = (
@@ -153,18 +131,12 @@ def build_kv_aligned_prompt(fen: str, legal_moves_list: list, is_constrained: bo
     """
     Constructs a KV-Cache aligned prompt:
     Static prefix is 100% constant across every turn and game (optimizing backend attention caching),
-    Dynamic suffix contains the changing board FEN and DMC-grouped legal moves string.
+    Dynamic suffix contains the changing board FEN and compact atomic legal moves.
     """
     if is_constrained:
         if use_dmc:
             compressed = compress_legal_moves(legal_moves_list)
-            suffix = (
-                f"\nBoard FEN: {fen}\n"
-                f"Legal moves grouped by origin square (format 'from:[to1,to2]'):\n"
-                f"{compressed}\n"
-                f"Pick an origin square and one of its destination squares to form your 4-character UCI move (e.g., e7:[e5,e6] -> e7e5, b8:[a6,c6] -> b8c6).\n"
-                f"Respond ONLY with that UCI move."
-            )
+            suffix = f"\nBoard FEN: {fen}\nLegal moves: {compressed}\nPick one."
         else:
             legal_str = json.dumps(legal_moves_list)
             suffix = f"\nBoard FEN: {fen}\nThe ONLY legal moves are: {legal_str}\nPick exactly one move."
@@ -492,6 +464,7 @@ def play_game(config, game_num, run_dir, uci_engine=None, stockfish_engine=None)
 
             # ── Stream live telemetry immediately to disk ─────────
             if run_dir:
+                os.makedirs(run_dir, exist_ok=True)
                 raw_path = os.path.join(run_dir, "raw_outputs.jsonl")
                 with open(raw_path, "a") as f_json:
                     f_json.write(json.dumps(record) + "\n")
