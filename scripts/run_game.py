@@ -94,9 +94,9 @@ def check_ollama(config):
 
 def compress_legal_moves(board_or_moves) -> str:
     """
-    Compact Atomic Move Formatting:
-    Formats legal moves as space-delimited atomic 4-character UCI strings (e.g. 'e7e5 e7e6 g8f6').
-    Avoids JSON formatting overhead and eliminates multi-step compositional hallucination.
+    Quoted Atomic Move Formatting:
+    Formats legal moves as comma-separated quoted atomic 4-character UCI strings (e.g. '"e7e5", "e7e6", "g8f6"').
+    Quote marks isolate BPE tokens in attention space, completely eliminating subword merging hallucinations.
     """
     if isinstance(board_or_moves, chess.Board):
         moves = [m.uci() for m in board_or_moves.legal_moves]
@@ -108,16 +108,17 @@ def compress_legal_moves(board_or_moves) -> str:
     if not moves:
         return ""
 
-    return " ".join(sorted(moves))
+    return ", ".join(f'"{m}"' for m in sorted(moves))
 
 
 def decompress_legal_moves(compressed_str: str) -> list:
     """
-    Reconstructs list of full UCI moves from a space-delimited string.
+    Reconstructs list of full UCI moves from a quoted move string.
     """
     if not compressed_str:
         return []
-    return [m.strip() for m in compressed_str.split() if m.strip()]
+    import re
+    return sorted(re.findall(r'[a-h][1-8][a-h][1-8][qrbn]?', compressed_str))
 
 
 STATIC_KV_PREFIX = (
@@ -131,12 +132,12 @@ def build_kv_aligned_prompt(fen: str, legal_moves_list: list, is_constrained: bo
     """
     Constructs a KV-Cache aligned prompt:
     Static prefix is 100% constant across every turn and game (optimizing backend attention caching),
-    Dynamic suffix contains the changing board FEN and compact atomic legal moves.
+    Dynamic suffix contains the changing board FEN and quoted atomic legal moves.
     """
     if is_constrained:
         if use_dmc:
             compressed = compress_legal_moves(legal_moves_list)
-            suffix = f"\nBoard FEN: {fen}\nLegal moves: {compressed}\nPick one."
+            suffix = f"\nBoard FEN: {fen}\nThe ONLY legal moves are: {compressed}\nPick exactly one move."
         else:
             legal_str = json.dumps(legal_moves_list)
             suffix = f"\nBoard FEN: {fen}\nThe ONLY legal moves are: {legal_str}\nPick exactly one move."
