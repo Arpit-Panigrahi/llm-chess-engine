@@ -14,6 +14,7 @@ Usage:
   python scripts/run_game.py --help
 """
 
+import csv
 import json
 import os
 import random
@@ -489,6 +490,23 @@ def play_game(config, game_num, run_dir, uci_engine=None, stockfish_engine=None)
             }
             records.append(record)
 
+            # ── Stream live telemetry immediately to disk ─────────
+            if run_dir:
+                raw_path = os.path.join(run_dir, "raw_outputs.jsonl")
+                with open(raw_path, "a") as f_json:
+                    f_json.write(json.dumps(record) + "\n")
+                    f_json.flush()
+
+                csv_path = os.path.join(run_dir, "live_moves.csv")
+                write_header = not os.path.exists(csv_path)
+                with open(csv_path, "a", newline="") as f_csv:
+                    csv_fields = ["game_id", "turn_number", "mode", "played_move", "move_legality", "turn_latency_ms", "prompt_tokens", "generation_tokens", "cpl_stockfish", "fen"]
+                    writer = csv.DictWriter(f_csv, fieldnames=csv_fields, extrasaction='ignore')
+                    if write_header:
+                        writer.writeheader()
+                    writer.writerow(record)
+                    f_csv.flush()
+
             if aborted:
                 break
 
@@ -503,13 +521,13 @@ def run(config, skip_preflight=False):
 
     # ── Preflight ────────────────────────────────────────
     if not skip_preflight:
-        print("\n🔍 Running Ollama preflight check...")
+        print("\n🔍 Running Ollama preflight check...", flush=True)
         if not check_ollama(config):
-            print("\n✗ Preflight failed. Use --skip-preflight to bypass.")
+            print("\n✗ Preflight failed. Use --skip-preflight to bypass.", flush=True)
             sys.exit(1)
-        print("✓ Ollama is reachable and model is available.\n")
+        print("✓ Ollama is reachable and model is available.\n", flush=True)
     else:
-        print("\n⚡ Skipping preflight check (--skip-preflight)\n")
+        print("\n⚡ Skipping preflight check (--skip-preflight)\n", flush=True)
 
     # ── Setup run directory ──────────────────────────────
     run_dir = os.path.join("runs", config.run_id)
@@ -522,11 +540,10 @@ def run(config, skip_preflight=False):
     # ── Play games ───────────────────────────────────────
     all_records = []
     game_results = []
-    raw_output_path = os.path.join(run_dir, "raw_outputs.jsonl")
 
     uci_engine = None
     if config.engine_mode == "uci":
-        print(f"♟ Initializing UCI engine at {config.engine_path}...")
+        print(f"♟ Initializing UCI engine at {config.engine_path}...", flush=True)
         try:
             uci_engine = chess.engine.SimpleEngine.popen_uci(config.engine_path)
             uci_engine.configure({
@@ -536,21 +553,21 @@ def run(config, skip_preflight=False):
                 "LLM_Constrained": config.constrained_decoding,
                 "LLM_Timeout": int(config.time_limit),
             })
-            print("✓ Engine initialized and configured via UCI.\n")
+            print("✓ Engine initialized and configured via UCI.\n", flush=True)
         except Exception as e:
-            print(f"✗ Failed to start UCI engine: {e}")
+            print(f"✗ Failed to start UCI engine: {e}", flush=True)
             sys.exit(1)
 
     stockfish_engine = None
     if config.eval_acpl:
         try:
             stockfish_engine = chess.engine.SimpleEngine.popen_uci(config.stockfish_path)
-            print(f"♟ Stockfish ACPL engine active: {config.stockfish_path}\n")
+            print(f"♟ Stockfish ACPL engine active: {config.stockfish_path}\n", flush=True)
         except Exception as e:
-            print(f"⚠ Could not start Stockfish ({e}). Proceeding without ACPL evaluation.\n")
+            print(f"⚠ Could not start Stockfish ({e}). Proceeding without ACPL evaluation.\n", flush=True)
             stockfish_engine = None
 
-    print(f"Starting {config.num_games} games...\n")
+    print(f"Starting {config.num_games} games...\n", flush=True)
 
     try:
         for game_num in range(1, config.num_games + 1):
@@ -561,11 +578,6 @@ def run(config, skip_preflight=False):
             all_records.extend(records)
             game_results.append({"game": game_num, "result": result, "llm_moves": len(records), "duration_s": round(game_time, 1)})
 
-            # Append raw outputs incrementally
-            with open(raw_output_path, "a") as f:
-                for rec in records:
-                    f.write(json.dumps(rec) + "\n")
-
             legal = sum(1 for r in records if r["is_legal"])
             total = len(records)
             rate = (legal / total * 100) if total > 0 else 0
@@ -573,7 +585,7 @@ def run(config, skip_preflight=False):
             avg_cpl_str = f"  ACPL: {sum(cpls)/len(cpls):.1f}" if cpls else ""
             print(f"  Game {game_num:3d}/{config.num_games}: {result:7s}  "
                   f"LLM moves: {total:3d}  Legal: {legal}/{total} ({rate:.0f}%){avg_cpl_str}  "
-                  f"Time: {game_time:.1f}s")
+                  f"Time: {game_time:.1f}s", flush=True)
     finally:
         if uci_engine:
             try:
