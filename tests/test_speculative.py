@@ -30,9 +30,9 @@ class TestSpeculativeDMC(unittest.TestCase):
     # ── Test 1: Start Position Legal Moves Compression ──────────────
     def test_dmc_startpos(self):
         compressed = compress_legal_moves(self.legal_start_uci)
-        self.assertIn('"e2e4"', compressed)
-        self.assertIn('"g1f3"', compressed)
-        self.assertEqual(len(compressed.split(", ")), 20)
+        self.assertIn('"e2:e3,e4"', compressed)
+        self.assertIn('"g1:f3,h3"', compressed)
+        self.assertEqual(len(compressed.split()), 10)  # 10 unique origin squares
 
     # ── Test 2: DMC Decompression Roundtrip Equality ─────────────────
     def test_dmc_decompression_equality(self):
@@ -63,7 +63,7 @@ class TestSpeculativeDMC(unittest.TestCase):
     def test_dmc_promotions(self):
         promo_moves = ["e7e8q", "e7e8r", "e7e8b", "e7e8n", "e7d8q"]
         compressed = compress_legal_moves(promo_moves)
-        self.assertEqual(compressed, '"e7d8q", "e7e8b", "e7e8n", "e7e8q", "e7e8r"')
+        self.assertEqual(compressed, '"e7:d8q,e8b,e8n,e8q,e8r"')
         decompressed = decompress_legal_moves(compressed)
         self.assertEqual(sorted(promo_moves), sorted(decompressed))
 
@@ -71,14 +71,14 @@ class TestSpeculativeDMC(unittest.TestCase):
     def test_dmc_compression_ratio(self):
         raw_json = json.dumps(self.legal_start_uci)
         compressed = compress_legal_moves(self.legal_start_uci)
-        self.assertLess(len(compressed), len(raw_json) + 1)
+        self.assertLess(len(compressed), len(raw_json) * 0.75)
 
     # ── Test 7: DMC Empty & Single Move Edge Cases ───────────────────
     def test_dmc_empty_and_single_move(self):
         self.assertEqual(compress_legal_moves([]), "")
         self.assertEqual(decompress_legal_moves(""), [])
-        self.assertEqual(compress_legal_moves(["e2e4"]), '"e2e4"')
-        self.assertEqual(decompress_legal_moves('"e2e4"'), ["e2e4"])
+        self.assertEqual(compress_legal_moves(["e2e4"]), '"e2:e4"')
+        self.assertEqual(decompress_legal_moves('"e2:e4"'), ["e2e4"])
 
     # ── Test 8: KV-Cache Static Prefix Invariance ───────────────────
     def test_kv_aligned_static_prefix(self):
@@ -95,15 +95,15 @@ class TestSpeculativeDMC(unittest.TestCase):
         fen = self.board_start.fen()
         prompt = build_kv_aligned_prompt(fen, self.legal_start_uci, is_constrained=False)
         self.assertIn(f"Board FEN: {fen}", prompt)
-        self.assertNotIn("The ONLY legal moves", prompt)
+        self.assertNotIn("Legal moves", prompt)
 
     # ── Test 10: KV-Cache DMC Suffix Structure ───────────────────────
     def test_kv_aligned_dynamic_suffix_dmc(self):
         fen = self.board_start.fen()
         prompt = build_kv_aligned_prompt(fen, self.legal_start_uci, is_constrained=True, use_dmc=True)
         self.assertIn(f"Board FEN: {fen}", prompt)
-        self.assertIn('The ONLY legal moves are: "a2a3"', prompt)
-        self.assertIn('"e2e4"', prompt)
+        self.assertIn('Legal moves: "e2:e3,e4"', prompt)
+        self.assertIn('"g1:f3,h3"', prompt)
 
     # ── Test 11: UCI Move Extraction - Standard Formats ──────────────
     def test_extract_uci_standard(self):
