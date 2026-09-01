@@ -182,14 +182,19 @@ def query_ollama(config, fen, legal_moves_list, is_constrained=None, use_dmc=Non
 
     prompt = build_kv_aligned_prompt(fen, legal_moves_list, is_constrained=is_constrained, use_dmc=use_dmc)
 
+    options = {
+        "temperature": temperature,
+        "seed": config.seed,
+    }
+    if is_constrained:
+        options["num_predict"] = 6
+        options["stop"] = ["\n", " ", ".", ",", "\""]
+
     payload = {
         "model": config.model,
         "prompt": prompt,
         "stream": False,
-        "options": {
-            "temperature": temperature,
-            "seed": config.seed,
-        },
+        "options": options,
     }
 
     url = f"{config.ollama_base_url}/api/generate"
