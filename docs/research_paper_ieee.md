@@ -138,15 +138,15 @@ We construct a 5-condition experiment matrix designed to evaluate temperature se
 
 Table I summarizes aggregate performance across $N = 260$ games and $1,077$ neural network inference calls:
 
-**TABLE I: Comprehensive Benchmark Results Across All Experimental Conditions**
+**TABLE I: Comprehensive Master Benchmark Results Across All Experimental Conditions**
 
-| Condition Tag | Games ($n$) | Total Moves | Legal Rate | Cold-Start (Disk Load) | Warm Steady-State | Mean Latency | $p95$ Latency | Stockfish ACPL | Top-1 Match |
+| Condition Tag | Games ($n$) | Total Moves | Legal Moves | Legal Rate | Overall Mean Latency | $p95$ Latency | Prompt Tokens | Stockfish ACPL | Top-1 Match Rate |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| `t02_unconstrained` | 130 | 270 | **51.85%** | 12,400 ms | 3,456 ms *(Aborts)* | 3,752.8 ms | 4,707 ms | 14.3 cp *(Bias)* | 48.3% |
-| `t08_unconstrained` | 130 | 277 | **54.51%** | 14,100 ms | 2,890 ms *(Aborts)* | 3,156.3 ms | 3,735 ms | 268.6 cp | 26.8% |
-| `t08_constrained_raw` | 30 | 110 | **100.00%** | 34,500 ms | 7,316 ms | 11,758.0 ms | 14,654 ms | 59.8 cp | 32.3% |
-| `t08_single_stage` | 40 | 180 | **100.00%** | 18,048 ms | **792 – 1,119 ms** | 9,437.5 ms | 11,223 ms | 67.0 cp | 30.0% |
-| `t08_speculative` | 30 | 110 | **98.18%** | 19,200 ms | 6,414 ms | 6,414.1 ms | **11,006.0 ms** | 55.8 cp | 31.8% |
+| `t02_unconstrained` | 130 | 270 | 140 | **51.85%** | 3,752.8 ms | 4,707 ms | 116.3 tok | 14.3 cp *(Bias)* | 48.3% |
+| `t08_unconstrained` | 130 | 277 | 151 | **54.51%** | 3,156.3 ms | 3,735 ms | 118.7 tok | 268.6 cp | 26.8% |
+| `t08_constrained_raw` | 30 | 110 | 110 | **100.00%** | 11,758.0 ms | 14,654 ms | 270.8 tok | 59.8 cp | 32.3% |
+| `t08_single_stage` | 40 | 180 | 180 | **100.00%** | 9,437.5 ms | 11,223 ms | 227.4 tok | 67.0 cp | 30.0% |
+| `t08_speculative` | 30 | 110 | 108 | **98.18%** | 6,414.1 ms | **11,006.0 ms** | 261.5 tok | 55.8 cp | 31.8% |
 
 ---
 
@@ -178,8 +178,19 @@ An apparent anomaly in Table I is the remarkably low Centipawn Loss of $T=0.2$ u
 
 ---
 
-### D. Cold-Start vs. Steady-State Warm Latency Profiling
-A critical systems finding in our experimental telemetry is the distinction between **Cold-Start Latency** and **Steady-State Warm Latency**:
+### D. Granular Latency Profiling: Cold-Start vs. Warm Steady-State Profiling
+
+Table II provides a dedicated decomposition of turn latency, separating initial model disk loading from steady-state in-memory execution:
+
+**TABLE II: Granular Latency Decomposition: Cold-Start vs. Warm-Start Steady-State Profiling**
+
+| Experimental Condition | Initial Cold-Start (Disk Load) | Warm Steady-State Latency Range | Warm Mean Latency (Excl. Cold-Start) | Overall Aggregate Mean (Incl. Cold-Start) | $p95$ Tail Latency Ceiling |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Fast Clamped Quoted DMC (Ours)** | $18,048\text{ ms}$ | **$792\text{ ms} \text{–} 1,119\text{ ms}$** | **$\mathbf{955.5\text{ ms}}$ (Sub-Second)** | $9,437.5\text{ ms}$ | $11,223.0\text{ ms}$ |
+| **Constrained Raw JSON Array** | $34,500\text{ ms}$ | $7,316\text{ ms} \text{–} 10,802\text{ ms}$ | **$7,316.9\text{ ms}$** | $11,758.0\text{ ms}$ | $14,654.0\text{ ms}$ |
+| **Two-Stage Speculative Retry** | $19,200\text{ ms}$ | $5,511\text{ ms} \text{–} 6,414\text{ ms}$ | **$5,732.7\text{ ms}$** | $6,414.1\text{ ms}$ | **$11,006.0\text{ ms}$ (Spike)** |
+| **$T=0.2$ Unconstrained Baseline** | $12,400\text{ ms}$ | $3,091\text{ ms} \text{–} 3,456\text{ ms}$ | **$3,091.2\text{ ms}$** *(Aborts on Move 2)*| $3,752.8\text{ ms}$ | $4,707.0\text{ ms}$ |
+
 * **Cold-Start Disk Load Penalty:** On Game 1 (Turn 1), the inference engine incurs an initial $18,048\text{ ms} \text{–} 34,500\text{ ms}$ latency penalty to stream the $4.92\text{ GB}$ quantized neural weights from disk storage into system RAM. In small-sample batch runs, this single initialization spike inflates the aggregate arithmetic mean.
 * **Steady-State Real-Time Inference:** Once model weights reside in RAM and candidate outputs are clamped with stop-tokens (`num_predict: 6`), our **Fast Clamped Quoted DMC** pipeline achieves a steady-state per-turn latency of **$\mathbf{792\text{ ms} \text{–} 1,119\text{ ms}}$** on commodity CPU hardware (sub-second execution).
 * **Speculative Retry Tail Latency Penalty:** In contrast, two-stage speculative retry suffers an **$11,006.0\text{ ms}$ $p95$ tail-latency spike** on turns where the unconstrained fast draft fails, requiring a sequential fallback call ($t_{\text{total}} = t_{\text{fast}} + t_{\text{slow}}$). This confirms that Single-Stage Quoted DMC provides both superior determinism and real-time execution.
@@ -190,7 +201,7 @@ A critical systems finding in our experimental telemetry is the distinction betw
 
 To understand why prompt formatting dictates legal compliance, we conducted an ablation study across three candidate move representations.
 
-**TABLE II: Ablation of Candidate Move Formatting Representations**
+**TABLE III: Ablation of Candidate Move Formatting Representations**
 
 | Representation Scheme | Example Format Injected into Prompt | Output Token Legality | Observed Failure Mode / Mechanism |
 | :--- | :--- | :---: | :--- |

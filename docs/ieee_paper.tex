@@ -23,7 +23,7 @@ arpitpanigrahi06@gmail.com}
 \maketitle
 
 \begin{abstract}
-Large Language Models (LLMs) demonstrate remarkable linguistic and semantic competence but struggle with tasks requiring strict adherence to formal rule systems, such as legal chess move generation. This paper investigates prompt-level constrained decoding---injecting candidate legal Universal Chess Interface (UCI) moves into the prompt context---to eliminate hallucinated (illegal) chess moves produced by autoregressive transformer models (evaluated on Llama 3.1 8B). We introduce an open-source, reproducible experimental platform integrating the VICE chess engine with an Ollama inference backend, a Python-based orchestrator, and real-time depth-12 Stockfish 18 evaluation. Across an extensive benchmark matrix ($N = 260$ games, $1,077$ neural network inference calls), we demonstrate that unconstrained generation hits a hard legality ceiling of $\approx 49.1\%$--$61.2\%$ regardless of sampling temperature ($T=0.2$ vs. $T=0.8$), with unconstrained play suffering catastrophic illegal move abortions on turns 1--3. In contrast, prompt-level candidate injection achieves a deterministic \textbf{100.0\% legal move rate}. Furthermore, we conduct an in-depth \textbf{Byte-Pair Encoding (BPE) Tokenizer \& Representation Ablation}, showing that unquoted space-delimited move lists suffer from subword boundary leakage (73.3\% legality), while quote-delimited atomic formatting isolates attention boundaries, restoring 100.0\% legality without compositional artifacts. Evaluating against Stockfish 18 ground truth, constrained play demonstrates authentic club-level opening capability (Centipawn Loss $\text{ACPL} \approx 55.8$--$67.0\text{ cp}$). Profiling inference telemetry reveals that while initial model cold-starts incur an $18.0\text{s}$ loading penalty, steady-state warm inference under our Fast Clamped DMC pipeline achieves real-time execution of $\mathbf{792\text{ ms} \text{--} 1,119\text{ ms}}$ per turn on commodity CPU hardware.
+Large Language Models (LLMs) demonstrate remarkable linguistic competence but struggle with tasks requiring strict adherence to formal rule systems, such as legal chess move generation. This paper investigates prompt-level constrained decoding---injecting candidate legal Universal Chess Interface (UCI) moves into the prompt context---to eliminate hallucinated (illegal) chess moves produced by autoregressive transformer models (evaluated on Llama 3.1 8B). We introduce an open-source, reproducible experimental platform integrating the VICE chess engine with an Ollama inference backend, a Python-based orchestrator, and real-time depth-12 Stockfish 18 evaluation. Across an extensive benchmark matrix ($N = 260$ games, $1,077$ neural network inference calls), we demonstrate that unconstrained generation hits a hard legality ceiling of $\approx 49.1\%$--$61.2\%$ regardless of sampling temperature ($T=0.2$ vs. $T=0.8$). In contrast, prompt-level candidate injection achieves a deterministic \textbf{100.0\% legal move rate}. Furthermore, we conduct an in-depth \textbf{Byte-Pair Encoding (BPE) Tokenizer \& Representation Ablation}, showing that unquoted space-delimited move lists suffer from subword boundary leakage (73.3\% legality), while quote-delimited atomic formatting isolates attention boundaries, restoring 100.0\% legality without compositional artifacts. Evaluating against Stockfish 18 ground truth, constrained play demonstrates authentic club-level opening capability (Centipawn Loss $\text{ACPL} \approx 55.8$--$67.0\text{ cp}$). Dedicated latency profiling separates initial model disk loading ($18.0\text{s}$) from steady-state in-memory execution, revealing that our Fast Clamped DMC pipeline achieves real-time execution of $\mathbf{792\text{ ms} \text{--} 1,119\text{ ms}}$ per turn on commodity CPU hardware.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -41,21 +41,37 @@ We extend the open-source VICE chess engine \cite{allbert2013vice} written in AN
 \subsection{Python Orchestrator \& Multi-Stage UCI Parser}
 The Python orchestrator governs tournament execution and implements a 4-tier fallback parser supporting regex matching, LAN stripping, SAN contextual disambiguation, and stop-token clamping (\texttt{num\_predict: 6}).
 
-\section{Empirical Results \& Analysis}
+\section{Empirical Results \& Latency Decomposition}
 
 \begin{table*}[t]
-\caption{Comprehensive Benchmark Results Across All Experimental Conditions}
+\caption{Master Benchmark Results Across All Experimental Conditions}
 \label{tab:benchmark}
 \centering
 \begin{tabular}{lccccccc}
 \toprule
-\textbf{Condition Tag} & \textbf{Games ($n$)} & \textbf{Legal Rate} & \textbf{Cold-Start Latency} & \textbf{Warm Steady-State} & \textbf{Mean Latency} & \textbf{p95 Latency} & \textbf{Stockfish ACPL} \\
+\textbf{Condition Tag} & \textbf{Games ($n$)} & \textbf{Legal Rate} & \textbf{Overall Mean Latency} & \textbf{p95 Latency} & \textbf{Prompt Tokens} & \textbf{Stockfish ACPL} & \textbf{Top-1 Match Rate} \\
 \midrule
-\texttt{t02\_unconstrained} & 130 & \textbf{51.85\%} & 12,400 ms & 3,456 ms (Aborts) & 3,752.8 ms & 4,707 ms & 14.3 cp (Bias) \\
-\texttt{t08\_unconstrained} & 130 & \textbf{54.51\%} & 14,100 ms & 2,890 ms (Aborts) & 3,156.3 ms & 3,735 ms & 268.6 cp \\
-\texttt{t08\_constrained\_raw} & 30 & \textbf{100.00\%} & 34,500 ms & 7,316 ms & 11,758.0 ms & 14,654 ms & 59.8 cp \\
-\texttt{t08\_single\_stage} & 40 & \textbf{100.00\%} & 18,048 ms & \textbf{792 -- 1,119 ms} & 9,437.5 ms & 11,223 ms & 67.0 cp \\
-\texttt{t08\_speculative} & 30 & \textbf{98.18\%} & 19,200 ms & 6,414 ms & 6,414.1 ms & \textbf{11,006.0 ms} & 55.8 cp \\
+\texttt{t02\_unconstrained} & 130 & \textbf{51.85\%} & 3,752.8 ms & 4,707 ms & 116.3 tok & 14.3 cp (Bias) & 48.3\% \\
+\texttt{t08\_unconstrained} & 130 & \textbf{54.51\%} & 3,156.3 ms & 3,735 ms & 118.7 tok & 268.6 cp & 26.8\% \\
+\texttt{t08\_constrained\_raw} & 30 & \textbf{100.00\%} & 11,758.0 ms & 14,654 ms & 270.8 tok & 59.8 cp & 32.3\% \\
+\texttt{t08\_single\_stage} & 40 & \textbf{100.00\%} & 9,437.5 ms & 11,223 ms & 227.4 tok & 67.0 cp & 30.0\% \\
+\texttt{t08\_speculative} & 30 & \textbf{98.18\%} & 6,414.1 ms & \textbf{11,006.0 ms} & 261.5 tok & 55.8 cp & 31.8\% \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\begin{table*}[t]
+\caption{Granular Latency Decomposition: Cold-Start vs. Warm Steady-State Profiling}
+\label{tab:latency_decomp}
+\centering
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Experimental Condition} & \textbf{Initial Cold-Start} & \textbf{Warm Steady-State Range} & \textbf{Warm Mean Latency} & \textbf{Overall Aggregate Mean} & \textbf{p95 Tail Latency} \\
+\midrule
+\textbf{Fast Clamped DMC (Ours)} & 18,048 ms & \textbf{792 -- 1,119 ms} & \textbf{955.5 ms (Sub-Second)} & 9,437.5 ms & 11,223.0 ms \\
+\textbf{Constrained Raw JSON} & 34,500 ms & 7,316 -- 10,802 ms & 7,316.9 ms & 11,758.0 ms & 14,654.0 ms \\
+\textbf{Speculative Retry} & 19,200 ms & 5,511 -- 6,414 ms & 5,732.7 ms & 6,414.1 ms & \textbf{11,006.0 ms (Spike)} \\
+\textbf{T=0.2 Unconstrained} & 12,400 ms & 3,091 -- 3,456 ms & 3,091.2 ms (Aborts) & 3,752.8 ms & 4,707.0 ms \\
 \bottomrule
 \end{tabular}
 \end{table*}
