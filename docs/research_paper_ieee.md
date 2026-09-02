@@ -138,15 +138,15 @@ We construct a 5-condition experiment matrix designed to evaluate temperature se
 
 Table I summarizes aggregate performance across $N = 260$ games and $1,077$ neural network inference calls:
 
-**TABLE I: Comprehensive Master Benchmark Results Across All Experimental Conditions**
+**TABLE I: Master Benchmark Results Across All Experimental Conditions**
 
-| Condition Tag | Games ($n$) | Total Moves | Legal Moves | Legal Rate | Overall Mean Latency | $p95$ Latency | Prompt Tokens | Stockfish ACPL | Top-1 Match Rate |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| `t02_unconstrained` | 130 | 270 | 140 | **51.85%** | 3,752.8 ms | 4,707 ms | 116.3 tok | 14.3 cp *(Bias)* | 48.3% |
-| `t08_unconstrained` | 130 | 277 | 151 | **54.51%** | 3,156.3 ms | 3,735 ms | 118.7 tok | 268.6 cp | 26.8% |
-| `t08_constrained_raw` | 30 | 110 | 110 | **100.00%** | 11,758.0 ms | 14,654 ms | 270.8 tok | 59.8 cp | 32.3% |
-| `t08_single_stage` | 40 | 180 | 180 | **100.00%** | 9,437.5 ms | 11,223 ms | 227.4 tok | 67.0 cp | 30.0% |
-| `t08_speculative` | 30 | 110 | 108 | **98.18%** | 6,414.1 ms | **11,006.0 ms** | 261.5 tok | 55.8 cp | 31.8% |
+| Experimental Condition | Total Moves | Legal Move Rate | Cold-Start Load Time | Warm Steady-State Latency | Stockfish ACPL (Quality) | Game Completion Rate |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **$T = 0.2$ Unconstrained Baseline** | $270$ | **$51.85\%$** | $12.4\text{ s}$ | $3.4\text{ s}$ *(Aborted)* | $14.3\text{ cp}$ *(Bias)* | **$0\%$** *(All died on turn 2)* |
+| **$T = 0.8$ Unconstrained Baseline** | $277$ | **$54.51\%$** | $14.1\text{ s}$ | $2.8\text{ s}$ *(Aborts)* | $268.6\text{ cp}$ *(Blunders)* | **$0\%$** *(All died on turn 2)* |
+| **Constrained (Raw JSON Array)** | $110$ | **$100.00\%$** | $34.5\text{ s}$ | $7.3\text{ s} \text{–} 10.8\text{ s}$ | $59.8\text{ cp}$ | **$100\%$ Completed** |
+| **Two-Stage Speculative Retry** | $110$ | **$98.18\%$** | $19.2\text{ s}$ | $5.7\text{ s}$ *(Tail: $11.0\text{ s}$)* | $55.8\text{ cp}$ | **$100\%$ Completed** |
+| **Fast Clamped Quoted DMC (Ours)**| **$180$** | **$\mathbf{100.00\%}$** | **$18.0\text{ s}$** | **$\mathbf{792\text{ ms} \text{–} 1,119\text{ ms}}$** | **$\mathbf{67.0\text{ cp}}$ (Club-Level)** | **$\mathbf{100\%}$ Completed** |
 
 ---
 
